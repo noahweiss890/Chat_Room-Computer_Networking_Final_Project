@@ -39,20 +39,16 @@ import sys
 # server.close()
 
 
-def connect_to_server(server: socket.socket):
-    if not server:
-        con_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ip_address = "0.0.0.0"
-        port = 50000
-        server.connect((ip_address, port))
-        username = input("Enter Username: ")
-        to_send = f"<connect><{username}>"
-        server.send(to_send.encode())
-        print(server.recv(2048).decode())
-        return con_server
-    else:
-        print("Already connected to server!")
-        return server
+def connect_to_server():
+    con_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ip_address = "0.0.0.0"
+    port = 50010
+    con_server.connect((ip_address, port))
+    username = input("Enter Username: ")
+    to_send = f"<connect><{username}>"
+    con_server.send(to_send.encode())
+    print(con_server.recv(2048).decode())
+    return con_server
 
 
 def disconnect_from_server(server: socket.socket):
@@ -73,7 +69,7 @@ if __name__ == '__main__':
     server = None
 
     while True:
-        print("Choose an option:\n"
+        print("\nChoose an option:\n"
               "1. Connect to server\n"
               "2. Disconnect from server\n"
               "3. Send message to a user\n"
@@ -85,31 +81,34 @@ if __name__ == '__main__':
 
         opt = input("Option: ")
 
-        if opt == 1:
-            server = connect_to_server(server)
-        elif opt == 2:
+        if opt == "1":
+            if not server:
+                server = connect_to_server()
+            else:
+                print("Already connected to server!")
+        elif opt == "2":
             disconnect_from_server(server)
             server = None
-        elif opt == 3:
+        elif opt == "3":
             to = input("Who would you like to send a message to? ")
             msg = input("Enter message: ")
             to_send = f"<set_msg><{to}><{msg}>"
             server.send(to_send.encode())
             print(f"You: {msg}")
-        elif opt == 4:
+        elif opt == "4":
             msg = input("Enter message: ")
             to_send = f"<set_msg_all><{msg}>"
             server.send(to_send.encode())
             print(f"You: {msg}")
-        elif opt == 5:
+        elif opt == "5":
             server.send("<get_users>".encode())
             print("-- online list --")
-            amount_of_users = server.recv(2048).decode()
+            amount_of_users = server.recv(2048).decode()[1:-1].split("><")[1]
+            users = server.recv(2048).decode()[1:-1].split("><")
             for i in range(int(amount_of_users)):
-                user = server.recv(2048).decode()
-                print(f"{i+1}. {user}")
+                print(f"{i+1}. {users[i]}")
             print("-- end list --")
-        elif opt == 6:
+        elif opt == "6":
             server.send("<get_list_file>".encode())
             response = server.recv(2048).decode()
             if response == "<file_lst>":
@@ -119,13 +118,14 @@ if __name__ == '__main__':
                     print(file[1:-1])
                     file = server.recv(2048).decode()
                 print("-- End Server File List --")
-        elif opt == 7:
+        elif opt == "7":
             file = input("Enter name of file to download: ")
             server.send(f"<download><{file}>".encode())
-        elif opt == 8:
+        elif opt == "8":
             server.send("<proceed>".encode())
         else:
-            messages = server.send("<get_messages>".encode())
+            server.send("<get_messages>".encode())
+            resp = server.recv(2048).decode()[1:-1].split("><")
             msg = server.recv(2048).decode()[1:-1].split("><")
             while msg[0] != "end":
                 print(f"{msg[0]}: {msg[1]}")

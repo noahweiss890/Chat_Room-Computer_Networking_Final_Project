@@ -1,16 +1,20 @@
+# import socket
+import socket
 from _thread import start_new_thread
-from socket import *
-import sys  # In order to terminate the program
+# from socket import *
+# import sys  # In order to terminate the program
 
 # import socket
-import select
+# import select
 
 # # import sys
 # from threading import *
 
-serverSocket = socket(AF_INET, SOCK_STREAM)
-
-SERVER_ADDRESS = ('', 50000)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
+# serverSocket = socket(AF_INET, SOCK_STREAM)
+serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+SERVER_ADDRESS = ('', 50010)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
 serverSocket.bind(SERVER_ADDRESS)  # this sets the ip address and port number to the socket using the bind function
 serverSocket.listen(15)  # this sets the max amount of clients that can use the server at once to 1
 
@@ -20,13 +24,13 @@ messages_for_users = {}
 
 
 def run_server():
+    print("Server ready for use!")
     while True:
         conn, addr = serverSocket.accept()
 
         msg_list = conn.recv(2048).decode()[1:-1].split("><")
 
         if msg_list[0] == "connect":
-            list_of_users.append(msg_list[1])
             print(msg_list[1] + " connected")
             list_of_users.append(msg_list[1])
             messages_for_users[msg_list[1]] = []
@@ -34,13 +38,15 @@ def run_server():
         else:
             print("Invalid Connection Request!")
 
+        print(list_of_users)
+
     conn.close()
     server.close()
 
 
 def client_thread(conn, username):
     # sends a message to the client whose user object is conn
-    conn.send("Welcome to this chatroom!")
+    conn.send("Welcome to this chatroom!".encode())
     filedata_to_send = ""
 
     while True:
@@ -55,6 +61,7 @@ def client_thread(conn, username):
                     del messages_for_users[username]
                     conn.send("<disconnected>".encode())
                     conn.close()
+                    print(username + " disconnected")
                     break
                 elif msg_list[0] == "get_users":
                     conn.send(f"<users_lst><{len(list_of_users)}>".encode())
