@@ -1,72 +1,39 @@
 import socket
-import select
-import sys
+import threading
 
-# server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#
-# if len(sys.argv) != 3:
-#     print("Correct usage: script, IP address, port number")
-#     exit()
-# IP_address = str(sys.argv[1])
-# Port = int(sys.argv[2])
-# server.connect((IP_address, Port))
-#
-# while True:
-#
-#     # maintains a list of possible input streams
-#     sockets_list = [sys.stdin, server]
-#
-#     """ There are two possible input situations. Either the
-#     user wants to give manual input to send to other people,
-#     or the server is sending a message to be printed on the
-#     screen. Select returns from sockets_list, the stream that
-#     is reader for input. So for example, if the server wants
-#     to send a message, then the if condition will hold true
-#     below.If the user wants to send a message, the else
-#     condition will evaluate as true"""
-#     read_sockets,write_socket, error_socket = select.select(sockets_list,[],[])
-#
-#     for socks in read_sockets:
-#         if socks == server:
-#             message = socks.recv(2048)
-#             print (message)
-#         else:
-#             message = sys.stdin.readline()
-#             server.send(message)
-#             sys.stdout.write("<You>")
-#             sys.stdout.write(message)
-#             sys.stdout.flush()
-# server.close()
+lock = threading.Lock()
+server = None
+connected = False
 
 
 def connect_to_server():
-    con_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ip_address = "0.0.0.0"
-    port = 50010
-    con_server.connect((ip_address, port))
+    global server, connected
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ip_address = "localhost"
+    port = 50005
+    server.connect((ip_address, port))
     username = input("Enter Username: ")
-    to_send = f"<connect><{username}>"
-    con_server.send(to_send.encode())
-    print(con_server.recv(2048).decode())
-    return con_server
+    server.send(f"<connect><{username}>".encode())
+    connected = True
 
 
-def disconnect_from_server(server: socket.socket):
-    server.send("<disconnect>".encode())
-    rec = server.recv(2048).decode()
-    if rec == "<disconnected>":
-        print("Signed Out")
-    server.close()
+def send_message():
+    global server
+    to = input("Who would you like to send a message to? ")
+    msg = input("Enter message: ")
+    server.send(f"<set_msg><{to}><{msg}>".encode())
+    print(f"You: {msg}")
 
 
-def send_message(server: socket.socket, to, msg):
-    to_send = f"<set_msg><{to}><{msg}>"
-    server.send(to_send.encode())
+def broadcast_message():
+    global server
+    msg = input("Enter message: ")
+    server.send(f"<set_msg_all><{msg}>".encode())
+    print(f"You: {msg}")
 
 
-if __name__ == '__main__':
-
-    server = None
+def sending_thread():
+    global server, connected
 
     while True:
         print("\nChoose an option:\n"
@@ -81,52 +48,75 @@ if __name__ == '__main__':
 
         opt = input("Option: ")
 
-        if opt == "1":
-            if not server:
-                server = connect_to_server()
+        if connected or opt == "1":
+            if opt == "1":
+                if not server:
+                    connect_to_server()
+                else:
+                    print("Already connected to server!")
+            elif opt == "2":
+                server.send("<disconnect>".encode())
+            elif opt == "3":
+                send_message()
+            elif opt == "4":
+                broadcast_message()
+            elif opt == "5":
+                server.send("<get_users>".encode())
+            elif opt == "6":
+                server.send("<get_list_file>".encode())
+            elif opt == "7":
+                file = input("Enter name of file to download: ")
+                server.send(f"<download><{file}>".encode())
+            elif opt == "8":
+                server.send("<proceed>".encode())
             else:
-                print("Already connected to server!")
-        elif opt == "2":
-            disconnect_from_server(server)
-            server = None
-        elif opt == "3":
-            to = input("Who would you like to send a message to? ")
-            msg = input("Enter message: ")
-            to_send = f"<set_msg><{to}><{msg}>"
-            server.send(to_send.encode())
-            print(f"You: {msg}")
-        elif opt == "4":
-            msg = input("Enter message: ")
-            to_send = f"<set_msg_all><{msg}>"
-            server.send(to_send.encode())
-            print(f"You: {msg}")
-        elif opt == "5":
-            server.send("<get_users>".encode())
-            print("-- online list --")
-            amount_of_users = server.recv(2048).decode()[1:-1].split("><")[1]
-            users = server.recv(2048).decode()[1:-1].split("><")
-            for i in range(int(amount_of_users)):
-                print(f"{i+1}. {users[i]}")
-            print("-- end list --")
-        elif opt == "6":
-            server.send("<get_list_file>".encode())
-            response = server.recv(2048).decode()
-            if response == "<file_lst>":
-                print("-- Server File List --")
-                file = server.recv(2048).decode()
-                while file != "<end>":
-                    print(file[1:-1])
-                    file = server.recv(2048).decode()
-                print("-- End Server File List --")
-        elif opt == "7":
-            file = input("Enter name of file to download: ")
-            server.send(f"<download><{file}>".encode())
-        elif opt == "8":
-            server.send("<proceed>".encode())
+                print("INVALID INPUT! TRY AGAIN!")
         else:
-            server.send("<get_messages>".encode())
-            resp = server.recv(2048).decode()[1:-1].split("><")
-            msg = server.recv(2048).decode()[1:-1].split("><")
-            while msg[0] != "end":
-                print(f"{msg[0]}: {msg[1]}")
-                msg = server.recv(2048).decode()[1:-1].split("><")
+            print("Not connected to server! Please connect to server")
+
+
+def listening_thread():
+    global server, connected
+    while True:
+        if connected:
+            message = server.recv(2048).decode()[1:-1].split("><")
+
+            if message[0] == "connected":
+                print("Signed In")
+            elif message[0] == "disconnected":
+                server.close()
+                server = None
+                connected = False
+                print("Signed Out")
+            elif message[0] == "users_lst":
+                print("-- online list --")
+                for user in message[1:-1]:
+                    print(user)
+                print("-- end list --")
+            elif message[0] == "file_lst":
+                print("-- Server File List --")
+                for file in message[1:-1]:
+                    print(file)
+                print("-- End Server File List --")
+            elif message[0] == "msg_lst":
+                for msg in message[1:-1]:
+                    print(msg)
+            elif message[0] == "username_ERROR":
+                print("ERROR: Username already in use! Choose a different one")
+                server.close()
+                server = None
+                connected = False
+            elif message[0] == "msg_ERROR":
+                print("ERROR: there is no user with that username! Try again")
+            elif message[0] == "server_closed":
+                server.close()
+                server = None
+                connected = False
+                print("ERROR: Server down")
+
+
+if __name__ == '__main__':
+    server_sending_thread = threading.Thread(target=sending_thread)
+    server_listening_thread = threading.Thread(target=listening_thread)
+    server_sending_thread.start()
+    server_listening_thread.start()
