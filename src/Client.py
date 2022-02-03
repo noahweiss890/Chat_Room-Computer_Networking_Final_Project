@@ -9,8 +9,8 @@ connected = False
 def connect_to_server():
     global server, connected
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ip_address = "0.0.0.0"
-    port = 50004
+    ip_address = "localhost"
+    port = 50005
     server.connect((ip_address, port))
     username = input("Enter Username: ")
     server.send(f"<connect><{username}>".encode())
@@ -108,6 +108,11 @@ def listening_thread():
                 connected = False
             elif message[0] == "msg_ERROR":
                 print("ERROR: there is no user with that username! Try again")
+            elif message[0] == "server_closed":
+                server.close()
+                server = None
+                connected = False
+                print("ERROR: Server down")
 
 
 if __name__ == '__main__':
