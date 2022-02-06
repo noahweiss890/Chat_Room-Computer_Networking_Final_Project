@@ -3,7 +3,7 @@ import threading
 from tkinter import *
 
 serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-SERVER_ADDRESS = ('localhost', 50005)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
+SERVER_ADDRESS = ('localhost', 50004)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
 serverSocket.bind(SERVER_ADDRESS)  # this sets the ip address and port number to the socket using the bind function
 serverSocket.listen(15)  # this sets the max amount of clients that can use the server at once to 1
 
@@ -17,6 +17,7 @@ flags_for_sender = {}
 
 
 def run_server():
+    global kill
     print("Server ready for use!")
     while not kill:
         conn, addr = serverSocket.accept()
@@ -40,6 +41,7 @@ def run_server():
 
 
 def sending_thread(conn: socket.socket, username: str):
+    global kill
     conn.send("<connected>".encode())
     while not kill:
         if flags_for_sender.get(username).get("get_users"):
@@ -75,10 +77,10 @@ def sending_thread(conn: socket.socket, username: str):
         if flags_for_sender.get(username).get("msg_ERROR"):
             conn.send("<msg_ERROR>".encode())
             flags_for_sender.get(username)["msg_ERROR"] = False
-    conn.send("<server_closed>".encode())
 
 
 def listening_thread(conn: socket.socket, username: str):
+    global kill
     # sends a message to the client whose user object is conn
     filedata_to_send = ""
 
