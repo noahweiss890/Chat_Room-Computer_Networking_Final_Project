@@ -6,7 +6,6 @@ import tkinter.scrolledtext as st
 from tkinter.ttk import Progressbar
 
 
-# flags = {"login": False}
 server = None
 connected = False
 kill = False
