@@ -13,7 +13,7 @@ user_lock = threading.Lock()
 
 kill = False
 list_of_users = {}
-list_of_server_files = os.listdir('Server_Files')
+list_of_server_files = os.listdir('../Server_Files')
 flags_for_sender = {}
 
 
