@@ -18,8 +18,9 @@ def connect_to_server():
             login["text"] = "Logout"
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ip_address = host.get()
-            port = 50001
+            port = 50000
             server.connect((ip_address, port))
+            print(server)
             username = user.get()
             server.send(f"<connect><{username}>".encode())
             connected = True
@@ -136,6 +137,9 @@ def listening_thread():
                 txt = "(ERROR: there is no file with that name on the server)\n"
                 input_box.insert(END, txt)
                 download["text"] = "Download"
+            elif message_from_server[0] == "file_sent":
+                txt = "(File was successfully downloaded from the server)"
+                input_box.insert(END, txt)
             input_box.see("end")
 
 
