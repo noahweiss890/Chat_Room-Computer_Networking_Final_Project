@@ -1,17 +1,17 @@
 import os
 import socket
 import threading
+import time
 from tkinter import *
 
 serverSocketTCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-SERVER_ADDRESS_TCP = ('localhost', 50000)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
+SERVER_ADDRESS_TCP = ('localhost', 50001)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
 serverSocketTCP.bind(SERVER_ADDRESS_TCP)  # this sets the ip address and port number to the socket using the bind function
 serverSocketTCP.listen(15)  # this sets the max amount of clients that can use the server at once to 1
 
-serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-SERVER_ADDRESS_UDP = ('localhost', 40000)
+serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+SERVER_ADDRESS_UDP = ('localhost', 40002)
 serverSocketUDP.bind(SERVER_ADDRESS_UDP)
-serverSocketUDP.listen(15)
 
 msg_lock = threading.Lock()
 user_lock = threading.Lock()
@@ -19,6 +19,7 @@ user_lock = threading.Lock()
 kill = False
 list_of_users = {}
 list_of_udp_sockets = {}
+requested_files = {}
 flags_for_sender = {}
 list_of_server_files = os.listdir('../Server_Files')
 
@@ -27,18 +28,13 @@ def run_server_tcp():
     print("Server ready for use!")
     while True:
         conn, addr = serverSocketTCP.accept()
-        print(conn)
-        print(addr)
         msg_list = conn.recv(2048).decode()[1:-1].split("><")
         if msg_list[0] == "connect":
             if msg_list[1] not in list_of_users:
                 print(msg_list[1] + " connected")
-                # client_socket_upd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                # client_socket_upd.connect(addr)
                 with user_lock:
                     list_of_users[msg_list[1]] = conn
-                    # list_of_client_socket_udp[msg_list[1]] = client_socket_upd
-                flags_for_sender[msg_list[1]] = {"get_users": False, "get_list_file": False, "msg_lst": [], "disconnect": False, "msg_ERROR": False, "FileNotFound_ERROR": False, "server_down": False, "file_sent": False}
+                flags_for_sender[msg_list[1]] = {"get_users": False, "get_list_file": False, "msg_lst": [], "disconnect": False, "msg_ERROR": False, "FileNotFound_ERROR": False, "server_down": False, "file_sent": False, "proceed": False}
                 client_listening_thread = threading.Thread(target=listening_thread, args=(conn, msg_list[1]))
                 client_sending_thread = threading.Thread(target=sending_thread, args=(conn, msg_list[1]))
                 client_listening_thread.setDaemon(True)
@@ -53,22 +49,32 @@ def run_server_tcp():
 
 def run_server_udp():
     while True:
-        conn, addr = serverSocketUDP.accept()
-        msg_list = conn.recv(2048).decode()[1:-1].split("><")
-        if msg_list[0] == "connect":
-            pass
-        else:
-            print("Invalid Connection Request!")
+        msg, addr = serverSocketUDP.recvfrom(1024)
+        msg_lst = msg.decode()[1:-1].split("><")
+        if msg_lst[0] == "connect":
+            send_over_udp_thread = threading.Thread(target=file_sender_thread, args=(addr, msg_lst[1]))
+            send_over_udp_thread.setDaemon(True)
+            send_over_udp_thread.start()
 
-    # client_socket_udp = list_of_client_socket_udp[username]
-    # try:
-    #     with open(filename, "r") as f:
-    #         filedata_to_send = f.read()
-    #     for i in range(0, len(filedata_to_send)):
-    #         client_socket_udp.send(filedata_to_send[i].encode())
-    #     flags_for_sender.get(username)["file_sent"] = True
-    # except IOError:
-    #     print("Couldn't Open File!")
+
+def file_sender_thread(addr, username: str):
+    path = f"../Server_Files/{requested_files.get(username)}"
+    serverSocketUDP.sendto(str(os.path.getsize(path)).encode(), addr)
+    while True:
+        if requested_files.get(username) and flags_for_sender.get(username)["proceed"]:
+            try:
+                with open(f"../Server_Files/{requested_files.get(username)}", "rb") as f:
+                    data = f.read(1024)
+                    while data:
+                        if serverSocketUDP.sendto(data, addr):
+                            data = f.read(1024)
+                            time.sleep(0.02)
+                print("FILE FULLY SENT!")
+            except IOError:
+                print("Couldn't Open File!")
+            requested_files[username] = ""
+            break
+    flags_for_sender.get(username)["file_sent"] = True
 
 
 def sending_thread(conn: socket.socket, username: str):
@@ -144,7 +150,7 @@ def listening_thread(conn: socket.socket, username: str):
                     flags_for_sender.get(username)["get_list_file"] = True
                 elif msg_list[0] == "download":
                     if msg_list[1] in list_of_server_files:
-                        pass
+                        requested_files[username] = msg_list[1]
                         # file_download_thread = threading.Thread(target=send_file_thread, args=(username, msg_list[1]))
                         # file_download_thread.setDaemon(True)
                         # file_download_thread.start()
@@ -160,7 +166,7 @@ def listening_thread(conn: socket.socket, username: str):
                     #         print("Couldn't Open File!")
                     # NOT DONE
                 elif msg_list[0] == "proceed":
-                    pass
+                    flags_for_sender.get(username)["proceed"] = True
                     # NOT DONE
                     # for i in range(0, len(filedata_to_send)):
                     #     conn.send(filedata_to_send[i].encode())
@@ -178,9 +184,12 @@ def start_server():
     start_button["state"] = DISABLED
     start_label = Label(root, text="Server Started")
     start_label.pack()
-    run_server_thread = threading.Thread(target=run_server_tcp)
-    run_server_thread.setDaemon(True)
-    run_server_thread.start()
+    run_server_tcp_thread = threading.Thread(target=run_server_tcp)
+    run_server_tcp_thread.setDaemon(True)
+    run_server_tcp_thread.start()
+    run_server_udp_thread = threading.Thread(target=run_server_udp)
+    run_server_udp_thread.setDaemon(True)
+    run_server_udp_thread.start()
 
 
 def quit_me():
@@ -205,3 +214,4 @@ if __name__ == '__main__':
         pass
 
     serverSocketTCP.close()
+    serverSocketUDP.close()
