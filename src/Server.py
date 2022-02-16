@@ -1,3 +1,4 @@
+import math
 import os
 import socket
 import threading
@@ -10,7 +11,7 @@ serverSocketTCP.bind(SERVER_ADDRESS_TCP)  # this sets the ip address and port nu
 serverSocketTCP.listen(15)  # this sets the max amount of clients that can use the server at once to 1
 
 serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-SERVER_ADDRESS_UDP = ('localhost', 40002)
+SERVER_ADDRESS_UDP = ('localhost', 40000)
 serverSocketUDP.bind(SERVER_ADDRESS_UDP)
 
 msg_lock = threading.Lock()
@@ -22,6 +23,16 @@ list_of_udp_sockets = {}
 requested_files = {}
 flags_for_sender = {}
 list_of_server_files = os.listdir('../Server_Files')
+available_udp_ports = []
+sent_packets = {}
+timeout_seq = {}
+dupack_seq = {}
+window_size = {}
+CC_stage = {}
+ssthresh = {}
+ssthresh_locks = {}
+window_size_locks = {}
+PACKET_SIZE = 1024
 
 
 def run_server_tcp():
@@ -34,7 +45,7 @@ def run_server_tcp():
                 print(msg_list[1] + " connected")
                 with user_lock:
                     list_of_users[msg_list[1]] = conn
-                flags_for_sender[msg_list[1]] = {"get_users": False, "get_list_file": False, "msg_lst": [], "disconnect": False, "msg_ERROR": False, "FileNotFound_ERROR": False, "server_down": False, "file_sent": False, "proceed": False}
+                flags_for_sender[msg_list[1]] = {"get_users": False, "get_list_file": False, "msg_lst": [], "disconnect": False, "msg_ERROR": False, "FileNotFound_ERROR": False, "server_down": False, "proceed": False}
                 client_listening_thread = threading.Thread(target=listening_thread, args=(conn, msg_list[1]))
                 client_sending_thread = threading.Thread(target=sending_thread, args=(conn, msg_list[1]))
                 client_listening_thread.setDaemon(True)
@@ -51,30 +62,143 @@ def run_server_udp():
     while True:
         msg, addr = serverSocketUDP.recvfrom(1024)
         msg_lst = msg.decode()[1:-1].split("><")
-        if msg_lst[0] == "connect":
-            send_over_udp_thread = threading.Thread(target=file_sender_thread, args=(addr, msg_lst[1]))
-            send_over_udp_thread.setDaemon(True)
-            send_over_udp_thread.start()
+        if msg_lst[0] == "SYN":
+            port = next_available_udp_port()
+            if port != -1:
+                new_serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                new_SERVER_ADDRESS_UDP = ('localhost', port)
+                new_serverSocketUDP.bind(new_SERVER_ADDRESS_UDP)
+                send_over_udp_thread = threading.Thread(target=file_sender_thread, args=(new_serverSocketUDP, addr, msg_lst[1]))
+                send_over_udp_thread.setDaemon(True)
+                send_over_udp_thread.start()
+            else:
+                print("No available port to open")
 
 
-def file_sender_thread(addr, username: str):
-    path = f"../Server_Files/{requested_files.get(username)}"
-    serverSocketUDP.sendto(str(os.path.getsize(path)).encode(), addr)
+def file_sender_thread(sockUDP: socket.socket, addr, username: str):
+    print("started file_sender_thread")
+    # global sent_packets, timeout_seq
+    sockUDP.sendto("<SYN ACK>".encode(), addr)
+    msg = sockUDP.recv(PACKET_SIZE).decode()[1:-1]
+    if msg == "ACK":
+        path = f"../Server_Files/{requested_files.get(username)}"
+        sockUDP.sendto(str(math.ceil(os.path.getsize(path)/PACKET_SIZE)).encode(), addr)
+        sent_packets[username] = {}
+        timeout_seq[username] = -1
+        dupack_seq[username] = -1
+        window_size[username] = 1
+        CC_stage[username] = "Slow Start"
+        ssthresh[username] = 32
+        ssthresh_locks[username] = threading.Lock()
+        window_size_locks[username] = threading.Lock()
+        packet_sender_thread = threading.Thread(target=packet_sender, args=(sockUDP, addr, username))
+        ack_receiver_thread = threading.Thread(target=ack_receiver, args=(sockUDP, username))
+        timeout_checker_thread = threading.Thread(target=timeout_checker, args=(username, ))
+        packet_sender_thread.setDaemon(True)
+        ack_receiver_thread.setDaemon(True)
+        timeout_checker_thread.setDaemon(True)
+        packet_sender_thread.start()
+        ack_receiver_thread.start()
+        timeout_checker_thread.start()
+
+
+def timeout_checker(username: str):
+    print("started timeout_checker")
+    global sent_packets, timeout_seq
+    timeout = 0.3
     while True:
-        if requested_files.get(username) and flags_for_sender.get(username)["proceed"]:
-            try:
-                with open(f"../Server_Files/{requested_files.get(username)}", "rb") as f:
-                    data = f.read(1024)
-                    while data:
-                        if serverSocketUDP.sendto(data, addr):
-                            data = f.read(1024)
-                            time.sleep(0.02)
-                print("FILE FULLY SENT!")
-            except IOError:
-                print("Couldn't Open File!")
-            requested_files[username] = ""
-            break
-    flags_for_sender.get(username)["file_sent"] = True
+        if timeout_seq[username] == -1:
+            print("sent packets:", sent_packets.get(username))
+            for seq, t in sent_packets.get(username).values():
+                if time.time() > t + timeout:
+                    print("timeout occurred")
+                    timeout_seq[username] = seq
+                    with ssthresh_locks[username]:
+                        ssthresh[username] = window_size[username]/2
+                    with window_size_locks[username]:
+                        window_size[username] = 1
+                    CC_stage[username] = "Slow Start"
+                    break
+
+
+def ack_receiver(sockUDP: socket.socket, username: str):
+    print("started ack_receiver")
+    global sent_packets
+    last_ack_seq = -1
+    dupAckcount = 0
+    packets_amount = math.ceil(os.path.getsize(f"../Server_Files/{requested_files.get(username)}")/PACKET_SIZE)
+    while True:
+        ack = sockUDP.recv(PACKET_SIZE).decode()[1:-1].split("><")
+        print("got ack for:", int(ack[1]))
+        if ack[0] == "ack":
+            if int(ack[1]) >= packets_amount:
+                break
+            if int(ack[1]) == last_ack_seq:
+                if CC_stage[username] == "Fast Recovery":
+                    with window_size_locks[username]:
+                        window_size[username] += 1
+                else:
+                    dupAckcount += 1
+                    if dupAckcount == 3:
+                        dupack_seq[username] = ack[1]
+                        with ssthresh_locks[username]:
+                            ssthresh[username] = window_size[username]/2
+                        with window_size_locks[username]:
+                            window_size[username] = window_size[username]/2 + 3
+                        CC_stage[username] = "Fast Recovery"
+            else:
+                last_ack_seq = int(ack[1])
+                dupAckcount = 0
+                if CC_stage[username] == "Slow Start":
+                    with window_size_locks[username]:
+                        window_size[username] *= 2
+                    if window_size[username] >= ssthresh[username]:
+                        CC_stage[username] = "Congestion Avoidance"
+                elif CC_stage[username] == "Congestion Avoidance":
+                    with window_size_locks[username]:
+                        window_size[username] += 1
+                elif CC_stage[username] == "Fast Recovery":
+                    with window_size_locks[username]:
+                        window_size[username] = ssthresh[username]
+                    CC_stage[username] = "Congestion Avoidance"
+                del sent_packets.get(username)[int(ack[1])]
+        else:
+            print("RECEIVED ERROR ON UDP!")
+
+
+def packet_sender(sockUDP: socket.socket, addr, username: str):
+    print("started packet_sender")
+    buffer = []
+    next_packet = 0
+    with open(f"../Server_Files/{requested_files.get(username)}", "rb") as f:
+        data = f.read(PACKET_SIZE)
+        while data:
+            buffer.append(f.read(PACKET_SIZE))
+            data = f.read(PACKET_SIZE)
+    while True:
+        if timeout_seq[username] != -1:
+            sockUDP.sendto(f"<{timeout_seq[username]}><{buffer[timeout_seq[username]]}>".encode(), addr)
+            print("sent timeout data seq:", timeout_seq[username])
+            sent_packets.get(username)[timeout_seq[username]] = time.time()
+            timeout_seq[username] = -1
+        if dupack_seq[username] != -1:
+            sockUDP.sendto(f"<{dupack_seq[username]}><{buffer[dupack_seq[username]]}>".encode(), addr)
+            print("sent duplicate data seq:", dupack_seq[username])
+            sent_packets.get(username)[dupack_seq[username]] = time.time()
+            dupack_seq[username] = -1
+        if len(sent_packets[username]) < window_size[username]:
+            sockUDP.sendto(f"<{next_packet}><{buffer[next_packet]}>".encode(), addr)
+            print("sent data seq:", next_packet)
+            sent_packets.get(username)[next_packet] = time.time()
+            next_packet += 1
+
+
+def next_available_udp_port() -> int:
+    for i in range(16):
+        if i not in available_udp_ports:
+            available_udp_ports.append(i)
+            return 55000 + i
+    return -1
 
 
 def sending_thread(conn: socket.socket, username: str):
@@ -119,9 +243,6 @@ def sending_thread(conn: socket.socket, username: str):
         if flags_for_sender.get(username).get("server_down"):
             conn.send("<server_down>".encode())
             flags_for_sender.get(username)["server_down"] = False
-        if flags_for_sender.get(username).get("file_sent"):
-            conn.send("<file_sent>".encode())
-            flags_for_sender.get(username)["file_sent"] = False
 
 
 def listening_thread(conn: socket.socket, username: str):
@@ -151,20 +272,8 @@ def listening_thread(conn: socket.socket, username: str):
                 elif msg_list[0] == "download":
                     if msg_list[1] in list_of_server_files:
                         requested_files[username] = msg_list[1]
-                        # file_download_thread = threading.Thread(target=send_file_thread, args=(username, msg_list[1]))
-                        # file_download_thread.setDaemon(True)
-                        # file_download_thread.start()
                     else:
                         flags_for_sender.get(username)["FileNotFound_ERROR"] = True
-                    # NOT DONE
-                    # file = msg_list[1]
-                    # if file in list_of_server_files:
-                    #     try:
-                    #         with open(file, "r") as f:
-                    #             filedata_to_send = f.read()
-                    #     except IOError:
-                    #         print("Couldn't Open File!")
-                    # NOT DONE
                 elif msg_list[0] == "proceed":
                     flags_for_sender.get(username)["proceed"] = True
                     # NOT DONE
@@ -196,10 +305,10 @@ def quit_me():
     global kill
     for username in list_of_users:
         flags_for_sender.get(username)["server_down"] = True
-    kill = True
     print('Shutting down server')
     root.quit()
     root.destroy()
+    kill = True
 
 
 if __name__ == '__main__':

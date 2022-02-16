@@ -1,3 +1,4 @@
+import math
 import select
 import socket
 import threading
@@ -12,6 +13,7 @@ server_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 connected = False
 kill = False
 user_name = ""
+PACKET_SIZE = 1024
 
 
 def connect_to_server():
@@ -81,10 +83,14 @@ def download_file():
             server_tcp.send(f"<download><{fileName.get()}>".encode())
         elif download["text"] == "Proceed":
             download["state"] = "disabled"
-            server_udp.sendto(f"<connect><{user_name}>".encode(), ("localhost", 40002))
-            receiving_udp = threading.Thread(target=receiving_udp_thread)
-            receiving_udp.setDaemon(True)
-            receiving_udp.start()
+            server_udp.sendto(f"<SYN><{user_name}>".encode(), ("localhost", 40000))
+            data, addr = server_udp.recvfrom(1024)
+            print("address of server:", addr)
+            if data.decode()[1:-1] == "SYN ACK":
+                server_udp.sendto("<ACK>".encode(), addr)
+                receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
+                receiving_udp.setDaemon(True)
+                receiving_udp.start()
             server_tcp.send("<proceed>".encode())
     else:
         txt = "(not logged in, please log in first)\n"
@@ -92,23 +98,40 @@ def download_file():
         input_box.see("end")
 
 
-def receiving_udp_thread():
+def receiving_udp_thread(addr):
     progress['value'] = 0
     root.update_idletasks()
-    data = server_udp.recv(1024).decode()
-    filesize = int(data)
-    timeout = 3
-    with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
-        while True:
-            print(progress['value'])
-            ready = select.select([server_udp], [], [], timeout)
-            if ready[0]:
-                data = server_udp.recv(1024)
-                progress['value'] += len(data)*100/filesize
-                root.update_idletasks()
-                f.write(data)
-            else:
+    size = server_udp.recv(PACKET_SIZE).decode()
+    print("size", int(size))
+    buffer = [None]*int(size)
+    print("progress:", progress['value'])
+    while True:
+        print("gonna receive")
+        data = server_udp.recv(PACKET_SIZE).decode()[1:-1].split("><")
+        print("got data seq:", int(data[0]))
+        seq = int(float(data[0]))
+        if not buffer[seq]:
+            buffer[seq] = bytes(data[1], encoding='utf8')
+            progress['value'] += 100/int(size)
+            print("progress:", progress['value'])
+            root.update_idletasks()
+        ack_seq = -1
+        for i, data in enumerate(buffer):
+            if data is None:
+                ack_seq = i
                 break
+        if ack_seq == -1:
+            break
+        server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
+        print("sent ack for:", ack_seq)
+    with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
+        for data_info in buffer:
+            f.write(data_info)
+    download["state"] = "normal"
+    download["text"] = "Download"
+    txt = f"({saveAs.get()} was successfully downloaded from the server)\n"
+    input_box.insert(END, txt)
+    input_box.see("end")
 
 
 def listening_thread():
@@ -163,11 +186,6 @@ def listening_thread():
                 txt = "(ERROR: there is no file with that name on the server)\n"
                 input_box.insert(END, txt)
                 download["text"] = "Download"
-            elif message_from_server[0] == "file_sent":
-                download["state"] = "normal"
-                download["text"] = "Download"
-                txt = "(File was successfully downloaded from the server)\n"
-                input_box.insert(END, txt)
             input_box.see("end")
 
 
