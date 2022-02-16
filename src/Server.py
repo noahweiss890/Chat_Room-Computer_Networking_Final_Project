@@ -32,6 +32,8 @@ CC_stage = {}
 ssthresh = {}
 ssthresh_locks = {}
 window_size_locks = {}
+CC_stage_locks = {}
+sent_packets_locks = {}
 PACKET_SIZE = 1024
 
 
@@ -81,8 +83,6 @@ def file_sender_thread(sockUDP: socket.socket, addr, username: str):
     sockUDP.sendto("<SYN ACK>".encode(), addr)
     msg = sockUDP.recv(PACKET_SIZE).decode()[1:-1]
     if msg == "ACK":
-        path = f"../Server_Files/{requested_files.get(username)}"
-        sockUDP.sendto(str(math.ceil(os.path.getsize(path)/PACKET_SIZE)).encode(), addr)
         sent_packets[username] = {}
         timeout_seq[username] = -1
         dupack_seq[username] = -1
@@ -91,8 +91,18 @@ def file_sender_thread(sockUDP: socket.socket, addr, username: str):
         ssthresh[username] = 32
         ssthresh_locks[username] = threading.Lock()
         window_size_locks[username] = threading.Lock()
-        packet_sender_thread = threading.Thread(target=packet_sender, args=(sockUDP, addr, username))
-        ack_receiver_thread = threading.Thread(target=ack_receiver, args=(sockUDP, username))
+        CC_stage_locks[username] = threading.Lock()
+        sent_packets_locks[username] = threading.Lock()
+        buffer = []
+        with open(f"../Server_Files/{requested_files.get(username)}", "rb") as f:
+            data = f.read(PACKET_SIZE)
+            while data:
+                buffer.append(f.read(PACKET_SIZE))
+                data = f.read(PACKET_SIZE)
+        print("size of buffer:", len(buffer))
+        sockUDP.sendto(str(len(buffer)).encode(), addr)
+        packet_sender_thread = threading.Thread(target=packet_sender, args=(sockUDP, addr, username, buffer))
+        ack_receiver_thread = threading.Thread(target=ack_receiver, args=(sockUDP, username, len(buffer)))
         timeout_checker_thread = threading.Thread(target=timeout_checker, args=(username, ))
         packet_sender_thread.setDaemon(True)
         ack_receiver_thread.setDaemon(True)
@@ -109,7 +119,9 @@ def timeout_checker(username: str):
     while True:
         if timeout_seq[username] == -1:
             print("sent packets:", sent_packets.get(username))
-            for seq, t in sent_packets.get(username).values():
+            with sent_packets_locks[username]:
+                copy_sent_packets = sent_packets.get(username).values()
+            for seq, t in copy_sent_packets:
                 if time.time() > t + timeout:
                     print("timeout occurred")
                     timeout_seq[username] = seq
@@ -117,19 +129,21 @@ def timeout_checker(username: str):
                         ssthresh[username] = window_size[username]/2
                     with window_size_locks[username]:
                         window_size[username] = 1
-                    CC_stage[username] = "Slow Start"
+                    with CC_stage_locks[username]:
+                        CC_stage[username] = "Slow Start"
                     break
 
 
-def ack_receiver(sockUDP: socket.socket, username: str):
+def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
     print("started ack_receiver")
-    global sent_packets
     last_ack_seq = -1
     dupAckcount = 0
     packets_amount = math.ceil(os.path.getsize(f"../Server_Files/{requested_files.get(username)}")/PACKET_SIZE)
     while True:
         ack = sockUDP.recv(PACKET_SIZE).decode()[1:-1].split("><")
         print("got ack for:", int(ack[1]))
+        if int(ack[1]) == buffer_size:
+            break
         if ack[0] == "ack":
             if int(ack[1]) >= packets_amount:
                 break
@@ -145,52 +159,57 @@ def ack_receiver(sockUDP: socket.socket, username: str):
                             ssthresh[username] = window_size[username]/2
                         with window_size_locks[username]:
                             window_size[username] = window_size[username]/2 + 3
-                        CC_stage[username] = "Fast Recovery"
+                        with CC_stage_locks[username]:
+                            CC_stage[username] = "Fast Recovery"
             else:
                 last_ack_seq = int(ack[1])
                 dupAckcount = 0
                 if CC_stage[username] == "Slow Start":
                     with window_size_locks[username]:
-                        window_size[username] *= 2
+                        window_size[username] += 2
                     if window_size[username] >= ssthresh[username]:
-                        CC_stage[username] = "Congestion Avoidance"
+                        with CC_stage_locks[username]:
+                            CC_stage[username] = "Congestion Avoidance"
                 elif CC_stage[username] == "Congestion Avoidance":
                     with window_size_locks[username]:
                         window_size[username] += 1
                 elif CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] = ssthresh[username]
-                    CC_stage[username] = "Congestion Avoidance"
-                del sent_packets.get(username)[int(ack[1])]
+                    with CC_stage_locks[username]:
+                        CC_stage[username] = "Congestion Avoidance"
+                with sent_packets_locks[username]:
+                    copy_sent_packets = list(sent_packets[username])
+                    for i in copy_sent_packets:
+                        if i < int(ack[1]):
+                            del sent_packets.get(username)[i]
         else:
             print("RECEIVED ERROR ON UDP!")
 
 
-def packet_sender(sockUDP: socket.socket, addr, username: str):
+def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
     print("started packet_sender")
-    buffer = []
     next_packet = 0
-    with open(f"../Server_Files/{requested_files.get(username)}", "rb") as f:
-        data = f.read(PACKET_SIZE)
-        while data:
-            buffer.append(f.read(PACKET_SIZE))
-            data = f.read(PACKET_SIZE)
     while True:
         if timeout_seq[username] != -1:
-            sockUDP.sendto(f"<{timeout_seq[username]}><{buffer[timeout_seq[username]]}>".encode(), addr)
-            print("sent timeout data seq:", timeout_seq[username])
-            sent_packets.get(username)[timeout_seq[username]] = time.time()
-            timeout_seq[username] = -1
+            with sent_packets_locks[username]:
+                sockUDP.sendto(f"<{timeout_seq[username]}><{buffer[timeout_seq[username]]}>".encode(), addr)
+                print("sent timeout data seq:", timeout_seq[username])
+                sent_packets.get(username)[timeout_seq[username]] = time.time()
+                timeout_seq[username] = -1
         if dupack_seq[username] != -1:
-            sockUDP.sendto(f"<{dupack_seq[username]}><{buffer[dupack_seq[username]]}>".encode(), addr)
-            print("sent duplicate data seq:", dupack_seq[username])
-            sent_packets.get(username)[dupack_seq[username]] = time.time()
-            dupack_seq[username] = -1
-        if len(sent_packets[username]) < window_size[username]:
-            sockUDP.sendto(f"<{next_packet}><{buffer[next_packet]}>".encode(), addr)
-            print("sent data seq:", next_packet)
-            sent_packets.get(username)[next_packet] = time.time()
-            next_packet += 1
+            with sent_packets_locks[username]:
+                sockUDP.sendto(f"<{dupack_seq[username]}><{buffer[dupack_seq[username]]}>".encode(), addr)
+                print("sent duplicate data seq:", dupack_seq[username])
+                sent_packets.get(username)[dupack_seq[username]] = time.time()
+                dupack_seq[username] = -1
+        with sent_packets_locks[username]:
+            with window_size_locks[username]:
+                if len(sent_packets[username]) < window_size[username]:
+                    sockUDP.sendto(f"<{next_packet}><{buffer[next_packet]}>".encode(), addr)
+                    print("sent data seq:", next_packet)
+                    sent_packets.get(username)[next_packet] = time.time()
+                    next_packet += 1
 
 
 def next_available_udp_port() -> int:

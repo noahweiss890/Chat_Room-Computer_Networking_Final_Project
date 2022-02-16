@@ -85,7 +85,6 @@ def download_file():
             download["state"] = "disabled"
             server_udp.sendto(f"<SYN><{user_name}>".encode(), ("localhost", 40000))
             data, addr = server_udp.recvfrom(1024)
-            print("address of server:", addr)
             if data.decode()[1:-1] == "SYN ACK":
                 server_udp.sendto("<ACK>".encode(), addr)
                 receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
@@ -126,7 +125,7 @@ def receiving_udp_thread(addr):
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
         for data_info in buffer:
-            f.write(data_info)
+            f.write(bytes(data_info))
     download["state"] = "normal"
     download["text"] = "Download"
     txt = f"({saveAs.get()} was successfully downloaded from the server)\n"
@@ -151,6 +150,7 @@ def listening_thread():
             elif message_from_server[0] == "server_down":
                 login["text"] = "Login"
                 download["text"] = "Download"
+                download["state"] = "normal"
                 txt = "(ERROR: Server is down)\n"
                 input_box.insert(END, txt)
                 server_tcp = None
