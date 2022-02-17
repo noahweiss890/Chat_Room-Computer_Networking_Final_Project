@@ -13,7 +13,7 @@ server_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 connected = False
 kill = False
 user_name = ""
-PACKET_SIZE = 1024
+PACKET_SIZE = 2048
 
 
 def connect_to_server():
@@ -31,6 +31,7 @@ def connect_to_server():
     elif login["text"] == "Logout":
         login["text"] = "Login"
         download["text"] = "Download"
+        download["state"] = "normal"
         user_name = ""
         server_tcp.send("<disconnect>".encode())
 
@@ -100,17 +101,21 @@ def download_file():
 def receiving_udp_thread(addr):
     progress['value'] = 0
     root.update_idletasks()
-    size = server_udp.recv(PACKET_SIZE).decode()
-    print("size", int(size))
-    buffer = [None]*int(size)
+    size_data = server_udp.recv(2)
+    size = size_data[0]*16**2 + size_data[1]
+    print("\nSIZE:")
+    # print(size)
+    print()
+    print("size", size)
+    buffer = [None]*size
     print("progress:", progress['value'])
     while True:
         print("gonna receive")
-        data = server_udp.recv(PACKET_SIZE).decode()[1:-1].split("><")
-        print("got data seq:", int(data[0]))
-        seq = int(float(data[0]))
+        data = server_udp.recv(PACKET_SIZE+2)
+        seq = data[0]*16**2 + data[1]
+        print("got data seq:", seq)
         if not buffer[seq]:
-            buffer[seq] = bytes(data[1], encoding='utf8')
+            buffer[seq] = data[2:]
             progress['value'] += 100/int(size)
             print("progress:", progress['value'])
             root.update_idletasks()
@@ -120,12 +125,13 @@ def receiving_udp_thread(addr):
                 ack_seq = i
                 break
         if ack_seq == -1:
+            server_udp.sendto(f"<ack><{size-1}>".encode(), addr)
             break
         server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
         for data_info in buffer:
-            f.write(bytes(data_info))
+            f.write(data_info)
     download["state"] = "normal"
     download["text"] = "Download"
     txt = f"({saveAs.get()} was successfully downloaded from the server)\n"
