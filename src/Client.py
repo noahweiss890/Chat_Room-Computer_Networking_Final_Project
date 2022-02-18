@@ -2,6 +2,7 @@ import math
 import select
 import socket
 import threading
+import time
 import tkinter
 from tkinter import *
 import tkinter.scrolledtext as st
@@ -109,10 +110,18 @@ def receiving_udp_thread(addr):
     print("size", size)
     buffer = [None]*size
     print("progress:", progress['value'])
+    once1 = True
+    once2 = True
     while True:
         print("gonna receive")
         data = server_udp.recv(PACKET_SIZE+2)
         seq = data[0]*16**2 + data[1]
+        if seq == 16 and once1:
+            once1 = False
+            continue
+        if seq == 25 and once2:
+            once2 = False
+            continue
         print("got data seq:", seq)
         if not buffer[seq]:
             buffer[seq] = data[2:]
@@ -125,9 +134,11 @@ def receiving_udp_thread(addr):
                 ack_seq = i
                 break
         if ack_seq == -1:
-            server_udp.sendto(f"<ack><{size-1}>".encode(), addr)
+            server_udp.sendto(f"<ack><{size}>".encode(), addr)
+            print("sent ack for:", size)
             break
         server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
+        time.sleep(0.2)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
         for data_info in buffer:
