@@ -118,10 +118,12 @@ def receiving_udp_thread(addr):
         seq = data[0]*16**2 + data[1]
         if seq == 16 and once1:
             once1 = False
+            # time.sleep(0.2)
             continue
-        if seq == 25 and once2:
+        if seq == 50 and once2:
             once2 = False
-            continue
+            time.sleep(3)
+            # continue
         print("got data seq:", seq)
         if not buffer[seq]:
             buffer[seq] = data[2:]
@@ -137,8 +139,8 @@ def receiving_udp_thread(addr):
             server_udp.sendto(f"<ack><{size}>".encode(), addr)
             print("sent ack for:", size)
             break
+        # time.sleep(0.2)
         server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
-        time.sleep(0.2)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
         for data_info in buffer:
@@ -197,7 +199,7 @@ def listening_thread():
                 server_tcp = None
                 connected = False
             elif message_from_server[0] == "msg_ERROR":
-                txt = "(ERROR: there is no user with that username! Try again)\n"
+                txt = "(ERROR: there is no user with that username signed in! Try again)\n"
                 input_box.insert(END, txt)
             elif message_from_server[0] == "FileNotFound_ERROR":
                 txt = "(ERROR: there is no file with that name on the server)\n"
