@@ -6,12 +6,12 @@ import time
 from tkinter import *
 
 serverSocketTCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-SERVER_ADDRESS_TCP = ('localhost', 50001)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
+SERVER_ADDRESS_TCP = ('0.0.0.0', 50001)  # this makes a tuple of the ip address and port number, the empty string in the spot of the ip means let the OS decide (normally 0.0.0.0)
 serverSocketTCP.bind(SERVER_ADDRESS_TCP)  # this sets the ip address and port number to the socket using the bind function
 serverSocketTCP.listen(15)  # this sets the max amount of clients that can use the server at once to 1
 
 serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-SERVER_ADDRESS_UDP = ('localhost', 40000)
+SERVER_ADDRESS_UDP = ('0.0.0.0', 40000)
 serverSocketUDP.bind(SERVER_ADDRESS_UDP)
 
 msg_lock = threading.Lock()
@@ -219,7 +219,7 @@ def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
                 CC_stage[username] = "Slow Start"
                 print("CC STAGE CHANGED TO Slow Start")
                 with window_size_locks[username]:
-                    ssthresh[username] = window_size[username]/2
+                    ssthresh[username] = max(window_size[username]/2, 1)
                     window_size[username] = 1
                     print("window size:", window_size[username])
                 print("sent timeout data seq:", seq)
