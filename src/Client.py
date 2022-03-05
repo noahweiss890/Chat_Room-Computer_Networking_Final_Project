@@ -27,12 +27,14 @@ def connect_to_server():
             port = 50001
             server_tcp.connect((ip_address, port))
             user_name = user.get()
+            user["state"] = "disabled"
             server_tcp.send(f"<connect><{user_name}>".encode())
             connected = True
     elif login["text"] == "Logout":
         login["text"] = "Login"
         download["text"] = "Download"
         download["state"] = "normal"
+        user["state"] = "normal"
         user_name = ""
         server_tcp.send("<disconnect>".encode())
 
@@ -110,20 +112,20 @@ def receiving_udp_thread(addr):
     print("size", size)
     buffer = [None]*size
     print("progress:", progress['value'])
-    once1 = True
-    once2 = True
+    # once1 = True
+    # once2 = True
     while True:
         print("gonna receive")
         data = server_udp.recv(PACKET_SIZE+2)
         seq = data[0]*16**2 + data[1]
-        if seq == 16 and once1:
-            once1 = False
-            # time.sleep(0.2)
-            continue
-        if seq == 50 and once2:
-            once2 = False
-            time.sleep(3)
-            # continue
+        # if seq == 16 and once1:
+        #     once1 = False
+        #     # time.sleep(0.2)
+        #     continue
+        # if seq == 50 and once2:
+        #     once2 = False
+        #     time.sleep(1.1)
+        #     continue
         print("got data seq:", seq)
         if not buffer[seq]:
             buffer[seq] = data[2:]
@@ -168,6 +170,7 @@ def listening_thread():
                 input_box.insert(END, txt)
             elif message_from_server[0] == "server_down":
                 login["text"] = "Login"
+                user["state"] = "normal"
                 download["text"] = "Download"
                 download["state"] = "normal"
                 txt = "(ERROR: Server is down)\n"
@@ -193,6 +196,7 @@ def listening_thread():
                 input_box.insert(END, txt)
             elif message_from_server[0] == "username_ERROR":
                 login["text"] = "Login"
+                user["state"] = "normal"
                 txt = "(ERROR: Username already in use! Choose a different one)\n"
                 input_box.insert(END, txt)
                 server_tcp.close()

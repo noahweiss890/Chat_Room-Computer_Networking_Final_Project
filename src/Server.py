@@ -89,7 +89,7 @@ def file_sender_thread(sockUDP: socket.socket, addr, username: str):
         window_size[username] = 1
         print("CC STAGE STARTING AT Slow Start")
         CC_stage[username] = "Slow Start"
-        ssthresh[username] = 12
+        ssthresh[username] = 16
         # ssthresh_locks[username] = threading.Lock()
         window_size_locks[username] = threading.Lock()
         # CC_stage_locks[username] = threading.Lock()
@@ -151,14 +151,17 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 if CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] += 1
+                        print("window size:", window_size[username])
                 else:
                     dupAckcount += 1
                     if dupAckcount == 3:
+                        print("*** 3 duplicate acks occurred")
                         dupack_seq[username] = int(ack[1])
                         # with ssthresh_locks[username]:
                         ssthresh[username] = window_size[username]/2
                         with window_size_locks[username]:
                             window_size[username] = window_size[username]/2 + 3
+                            print("window size:", window_size[username])
                         # with CC_stage_locks[username]:
                         CC_stage[username] = "Fast Recovery"
                         print("CC STAGE CHANGED TO Fast Recovery")
@@ -168,6 +171,7 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 if CC_stage[username] == "Slow Start":
                     with window_size_locks[username]:
                         window_size[username] += 1
+                        print("window size:", window_size[username])
                     if window_size[username] >= ssthresh[username]:
                         # with CC_stage_locks[username]:
                         CC_stage[username] = "Congestion Avoidance"
@@ -175,17 +179,19 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 elif CC_stage[username] == "Congestion Avoidance":
                     with window_size_locks[username]:
                         window_size[username] += 1/window_size[username]
+                        print("window size:", window_size[username])
                 elif CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] = ssthresh[username]
+                        print("window size:", window_size[username])
                     # with CC_stage_locks[username]:
                     CC_stage[username] = "Congestion Avoidance"
                     print("CC STAGE CHANGED TO Congestion Avoidance")
                 # with sent_packets_locks[username]:
-                print("send packets keys:", sent_packets[username].keys())
+                # print("send packets keys:", sent_packets[username].keys())
                 for i in sent_packets[username].copy().keys():
                     if i < int(ack[1]):
-                        print(f"ack is {int(ack[1])}, gonna delete seq: {i}")
+                        # print(f"ack is {int(ack[1])}, gonna delete seq: {i}")
                         with sent_packets_locks[username]:
                             del sent_packets.get(username)[i]
         else:
@@ -195,7 +201,7 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
 def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
     print("started packet_sender")
     next_packet = 0
-    timeout = 1.0
+    timeout = 0.5
     # timeout_seq = -1
     while not udp_thread_kill[username]:
         # print("STARTING LOOP")
@@ -209,12 +215,13 @@ def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
         curr_time = time.time()
         for seq, t in copy_sent_packets.items():
             if curr_time > t + timeout:
-                print("timeout occurred:", seq)
+                print("*** timeout occurred:", seq)
                 CC_stage[username] = "Slow Start"
                 print("CC STAGE CHANGED TO Slow Start")
                 with window_size_locks[username]:
                     ssthresh[username] = window_size[username]/2
                     window_size[username] = 1
+                    print("window size:", window_size[username])
                 print("sent timeout data seq:", seq)
                 sockUDP.sendto(seq.to_bytes(2, byteorder='big')+buffer[seq], addr)
                 with sent_packets_locks[username]:
@@ -247,7 +254,7 @@ def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
                 while next_packet < len(buffer) and len(sent_packets[username]) < int(window_size[username]):
                     # sent_packets_locks[username].release()
                     # window_size_locks[username].release()
-                    print("len of sent_packets:", len(sent_packets[username]), "    window_size:", int(window_size[username]))
+                    # print("len of sent_packets:", len(sent_packets[username]), "    window_size:", int(window_size[username]))
                     # if next_packet < len(buffer):
                     print("sent data seq:", next_packet)
                     sockUDP.sendto(next_packet.to_bytes(2, byteorder='big')+buffer[next_packet], addr)
