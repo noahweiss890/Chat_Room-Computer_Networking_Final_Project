@@ -1,46 +1,55 @@
+import math
+import select
 import socket
 import threading
+import time
 import tkinter
 from tkinter import *
 import tkinter.scrolledtext as st
 from tkinter.ttk import Progressbar
 
 
-server = None
+server_tcp = None
+server_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 connected = False
 kill = False
+user_name = ""
+PACKET_SIZE = 2048
 
 
 def connect_to_server():
-    global server, connected
+    global server_tcp, connected, user_name
     if login["text"] == "Login":
         if user.get():
             login["text"] = "Logout"
-            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ip_address = host.get()
-            port = 50000
-            server.connect((ip_address, port))
-            print(server)
-            username = user.get()
-            server.send(f"<connect><{username}>".encode())
+            port = 50001
+            server_tcp.connect((ip_address, port))
+            user_name = user.get()
+            user["state"] = "disabled"
+            server_tcp.send(f"<connect><{user_name}>".encode())
             connected = True
     elif login["text"] == "Logout":
         login["text"] = "Login"
         download["text"] = "Download"
-        server.send("<disconnect>".encode())
+        download["state"] = "normal"
+        user["state"] = "normal"
+        user_name = ""
+        server_tcp.send("<disconnect>".encode())
 
 
 def send_message():
-    global server, connected
+    global server_tcp, connected
     if connected:
         to = rec.get()
         msg = message.get()
         if msg:
             if to:
-                server.send(f"<set_msg><{to}><{msg}>".encode())
+                server_tcp.send(f"<set_msg><{to}><{msg}>".encode())
                 txt = f"(to {to}) You: {msg}\n"
             else:
-                server.send(f"<set_msg_all><{msg}>".encode())
+                server_tcp.send(f"<set_msg_all><{msg}>".encode())
                 txt = f"(public) You: {msg}\n"
             input_box.insert(END, txt)
             input_box.see("end")
@@ -51,9 +60,9 @@ def send_message():
 
 
 def get_user_list():
-    global server, connected
+    global server_tcp, connected
     if connected:
-        server.send("<get_users>".encode())
+        server_tcp.send("<get_users>".encode())
     else:
         txt = "(not logged in, please log in first)\n"
         input_box.insert(END, txt)
@@ -61,51 +70,113 @@ def get_user_list():
 
 
 def get_file_list():
-    global server, connected
+    global server_tcp, connected
     if connected:
-        server.send("<get_list_file>".encode())
+        server_tcp.send("<get_list_file>".encode())
     else:
         txt = "(not logged in, please log in first)\n"
         input_box.insert(END, txt)
         input_box.see("end")
 
 
-def downLoad():
-    global server, connected
+def download_file():
+    global server_tcp, connected, server_udp
     if connected:
         if download["text"] == "Download":
             download["text"] = "Proceed"
-            server.send(f"<download><{fileName.get()}>".encode())
+            server_tcp.send(f"<download><{fileName.get()}>".encode())
         elif download["text"] == "Proceed":
-            server.send("<proceed>".encode())
+            download["state"] = "disabled"
+            server_udp.sendto(f"<SYN><{user_name}>".encode(), ("localhost", 40000))
+            data, addr = server_udp.recvfrom(1024)
+            if data.decode()[1:-1] == "SYN ACK":
+                server_udp.sendto("<ACK>".encode(), addr)
+                receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
+                receiving_udp.setDaemon(True)
+                receiving_udp.start()
+            server_tcp.send("<proceed>".encode())
     else:
         txt = "(not logged in, please log in first)\n"
         input_box.insert(END, txt)
         input_box.see("end")
 
 
+def receiving_udp_thread(addr):
+    progress['value'] = 0
+    root.update_idletasks()
+    size_data = server_udp.recv(2)
+    size = size_data[0]*16**2 + size_data[1]
+    print("\nSIZE:")
+    # print(size)
+    print()
+    print("size", size)
+    buffer = [None]*size
+    print("progress:", progress['value'])
+    # once1 = True
+    # once2 = True
+    while True:
+        print("gonna receive")
+        data = server_udp.recv(PACKET_SIZE+2)
+        seq = data[0]*16**2 + data[1]
+        # if seq == 16 and once1:
+        #     once1 = False
+        #     # time.sleep(0.2)
+        #     continue
+        # if seq == 50 and once2:
+        #     once2 = False
+        #     time.sleep(1.1)
+        #     continue
+        print("got data seq:", seq)
+        if not buffer[seq]:
+            buffer[seq] = data[2:]
+            progress['value'] += 100/int(size)
+            print("progress:", progress['value'])
+            root.update_idletasks()
+        ack_seq = -1
+        for i, data in enumerate(buffer):
+            if data is None:
+                ack_seq = i
+                break
+        if ack_seq == -1:
+            server_udp.sendto(f"<ack><{size}>".encode(), addr)
+            print("sent ack for:", size)
+            break
+        # time.sleep(0.2)
+        server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
+        print("sent ack for:", ack_seq)
+    with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
+        for data_info in buffer:
+            f.write(data_info)
+    download["state"] = "normal"
+    download["text"] = "Download"
+    txt = f"({saveAs.get()} was successfully downloaded from the server)\n"
+    input_box.insert(END, txt)
+    input_box.see("end")
+
+
 def listening_thread():
-    global server, connected
+    global server_tcp, connected
     while True:
         if connected:
-            message_from_server = server.recv(2048).decode()[1:-1].split("><")
+            message_from_server = server_tcp.recv(2048).decode()[1:-1].split("><")
             if message_from_server[0] == "connected":
                 txt = f"({user.get()} logged in)\n"
                 input_box.insert(END, txt)
             elif message_from_server[0] == "disconnected":
-                server.close()
-                server = None
+                server_tcp.close()
+                server_tcp = None
                 connected = False
                 txt = f"({user.get()} logged out)\n"
                 input_box.insert(END, txt)
             elif message_from_server[0] == "server_down":
                 login["text"] = "Login"
+                user["state"] = "normal"
                 download["text"] = "Download"
+                download["state"] = "normal"
                 txt = "(ERROR: Server is down)\n"
                 input_box.insert(END, txt)
-                server = None
+                server_tcp = None
                 connected = False
-                # server.close()
             elif message_from_server[0] == "users_lst":
                 txt = "\n-- online list --\n"
                 for username in message_from_server[1:-1]:
@@ -125,21 +196,19 @@ def listening_thread():
                 input_box.insert(END, txt)
             elif message_from_server[0] == "username_ERROR":
                 login["text"] = "Login"
+                user["state"] = "normal"
                 txt = "(ERROR: Username already in use! Choose a different one)\n"
                 input_box.insert(END, txt)
-                server.close()
-                server = None
+                server_tcp.close()
+                server_tcp = None
                 connected = False
             elif message_from_server[0] == "msg_ERROR":
-                txt = "(ERROR: there is no user with that username! Try again)\n"
+                txt = "(ERROR: there is no user with that username signed in! Try again)\n"
                 input_box.insert(END, txt)
             elif message_from_server[0] == "FileNotFound_ERROR":
                 txt = "(ERROR: there is no file with that name on the server)\n"
                 input_box.insert(END, txt)
                 download["text"] = "Download"
-            elif message_from_server[0] == "file_sent":
-                txt = "(File was successfully downloaded from the server)"
-                input_box.insert(END, txt)
             input_box.see("end")
 
 
@@ -150,7 +219,7 @@ def clear_inbox():
 def quit_me():
     global kill
     if connected:
-        server.send("<disconnect>".encode())
+        server_tcp.send("<disconnect>".encode())
     root.quit()
     root.destroy()
     kill = True
@@ -230,9 +299,9 @@ if __name__ == '__main__':
     # saveAs.insert(0, "save as:")
     # saveAs.configure(foreground="grey")
     saveAs.grid(row=8, column=1)
-    download = Button(fileframe, text="Download", command=downLoad, fg='blue')
+    download = Button(fileframe, text="Download", command=download_file, fg='blue')
     download.grid(row=8, column=2)
-    progress = Progressbar(fileframe, orient=HORIZONTAL, length=200, mode='indeterminate')
+    progress = Progressbar(fileframe, orient=HORIZONTAL, length=200, mode='determinate')
     progress.grid(row=9, column=0)
 
     server_listening_thread = threading.Thread(target=listening_thread)
