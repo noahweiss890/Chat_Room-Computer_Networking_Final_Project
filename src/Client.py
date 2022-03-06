@@ -25,6 +25,7 @@ def connect_to_server():
             server_tcp.connect((ip_address, port))
             user_name = user.get()
             user["state"] = "disabled"
+            host["state"] = "disabled"
             server_tcp.send(f"<connect><{user_name}>".encode())
             connected = True
     elif login["text"] == "Logout":
@@ -32,6 +33,7 @@ def connect_to_server():
         download["text"] = "Download"
         download["state"] = "normal"
         user["state"] = "normal"
+        host["state"] = "normal"
         user_name = ""
         server_tcp.send("<disconnect>".encode())
 
@@ -41,6 +43,7 @@ def send_message():
     if connected:
         to = rec.get()
         msg = message.get()
+        message.delete(0, END)
         if msg:
             if to:
                 server_tcp.send(f"<set_msg><{to}><{msg}>".encode())
@@ -85,7 +88,7 @@ def download_file():
         elif download["text"] == "Proceed":
             if saveAs.get():
                 download["state"] = "disabled"
-                server_udp.sendto(f"<SYN><{user_name}>".encode(), ("localhost", 40000))
+                server_udp.sendto(f"<SYN><{user_name}>".encode(), (host.get(), 40000))
                 data, addr = server_udp.recvfrom(1024)
                 if data.decode()[1:-1] == "SYN ACK":
                     server_udp.sendto("<ACK>".encode(), addr)
@@ -172,6 +175,7 @@ def listening_thread():
             elif message_from_server[0] == "server_down":
                 login["text"] = "Login"
                 user["state"] = "normal"
+                host["state"] = "normal"
                 download["text"] = "Download"
                 download["state"] = "normal"
                 txt = "(ERROR: Server is down)\n"
@@ -198,6 +202,7 @@ def listening_thread():
             elif message_from_server[0] == "username_ERROR":
                 login["text"] = "Login"
                 user["state"] = "normal"
+                host["state"] = "normal"
                 txt = "(ERROR: Username already in use! Choose a different one)\n"
                 input_box.insert(END, txt)
                 server_tcp.close()
@@ -254,8 +259,8 @@ if __name__ == '__main__':
     user.grid(row=0, column=2)
     addr = Label(topframe, text="Host Address")
     addr.grid(row=0, column=3)
-    localhost = StringVar(root, value='localhost')
-    host = Entry(topframe, width=15, textvariable=localhost)
+    defaulthost = StringVar(root, value='0.0.0.0')
+    host = Entry(topframe, width=15, textvariable=defaulthost)
     host.grid(row=0, column=4)
     user_list = Button(topframe, text="Current Online Users", command=get_user_list, fg='blue')
     user_list.grid(row=0, column=5)
