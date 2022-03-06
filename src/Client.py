@@ -1,8 +1,5 @@
-import math
-import select
 import socket
 import threading
-import time
 import tkinter
 from tkinter import *
 import tkinter.scrolledtext as st
@@ -24,7 +21,7 @@ def connect_to_server():
             login["text"] = "Logout"
             server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ip_address = host.get()
-            port = 50001
+            port = 50000
             server_tcp.connect((ip_address, port))
             user_name = user.get()
             user["state"] = "disabled"
@@ -86,15 +83,20 @@ def download_file():
             download["text"] = "Proceed"
             server_tcp.send(f"<download><{fileName.get()}>".encode())
         elif download["text"] == "Proceed":
-            download["state"] = "disabled"
-            server_udp.sendto(f"<SYN><{user_name}>".encode(), ("localhost", 40000))
-            data, addr = server_udp.recvfrom(1024)
-            if data.decode()[1:-1] == "SYN ACK":
-                server_udp.sendto("<ACK>".encode(), addr)
-                receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
-                receiving_udp.setDaemon(True)
-                receiving_udp.start()
-            server_tcp.send("<proceed>".encode())
+            if saveAs.get():
+                download["state"] = "disabled"
+                server_udp.sendto(f"<SYN><{user_name}>".encode(), ("localhost", 40000))
+                data, addr = server_udp.recvfrom(1024)
+                if data.decode()[1:-1] == "SYN ACK":
+                    server_udp.sendto("<ACK>".encode(), addr)
+                    receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
+                    receiving_udp.setDaemon(True)
+                    receiving_udp.start()
+                server_tcp.send("<proceed>".encode())
+            else:
+                txt = "(ERROR: please enter a file name for the downloaded file)\n"
+                input_box.insert(END, txt)
+                input_box.see("end")
     else:
         txt = "(not logged in, please log in first)\n"
         input_box.insert(END, txt)
@@ -141,7 +143,6 @@ def receiving_udp_thread(addr):
             server_udp.sendto(f"<ack><{size}>".encode(), addr)
             print("sent ack for:", size)
             break
-        # time.sleep(0.2)
         server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
@@ -250,15 +251,11 @@ if __name__ == '__main__':
     name = Label(topframe, text="Username")
     name.grid(row=0, column=1)
     user = Entry(topframe, width=15)
-    # user.insert(0, "Enter username here:")
-    # user.configure(foreground="grey")
     user.grid(row=0, column=2)
     addr = Label(topframe, text="Host Address")
     addr.grid(row=0, column=3)
     localhost = StringVar(root, value='localhost')
     host = Entry(topframe, width=15, textvariable=localhost)
-    # host.insert(0, "host:")
-    # host.configure(foreground="grey")
     host.grid(row=0, column=4)
     user_list = Button(topframe, text="Current Online Users", command=get_user_list, fg='blue')
     user_list.grid(row=0, column=5)
@@ -268,14 +265,10 @@ if __name__ == '__main__':
     sendTo = Label(messageframe, text="Send to: (blank if all)")
     sendTo.grid(row=3, column=0)
     rec = Entry(messageframe, width=15)
-    # rec.insert(0, "Enter client name:")
-    # rec.configure(foreground="grey")
     rec.grid(row=4, column=0)
     messagelabel = Label(messageframe, text="Message")
     messagelabel.grid(row=3, column=1)
     message = Entry(messageframe, width=50)
-    # message.insert(0, "Enter message here:")
-    # message.configure(foreground="grey")
     message.grid(row=4, column=1)
     sendm = Button(messageframe, text="Send", command=send_message, fg='blue')
     sendm.grid(row=4, column=2)
@@ -283,21 +276,16 @@ if __name__ == '__main__':
     input_box = st.ScrolledText(txtframe, width=85, height=25, font=("Times New Roman", 15))
     input_box.grid(column=0, padx=10, pady=10)
     input_box.insert(tkinter.INSERT, "Welcome!\n")
-    # input_box.configure(state='disabled')
     clear_button = Button(txtframe, text="Clear Inbox", command=clear_inbox, fg='blue')
     clear_button.grid(row=5, column=0)
 
     fileNameL = Label(fileframe, text="Server File Name")
     fileNameL.grid(row=7, column=0)
     fileName = Entry(fileframe, width=15)
-    # fileName.insert(0, "file name:")
-    # fileName.configure(foreground="grey")
     fileName.grid(row=8, column=0)
     SaveAsLabel = Label(fileframe, text="Save File As:")
     SaveAsLabel.grid(row=7, column=1)
     saveAs = Entry(fileframe, width=15)
-    # saveAs.insert(0, "save as:")
-    # saveAs.configure(foreground="grey")
     saveAs.grid(row=8, column=1)
     download = Button(fileframe, text="Download", command=download_file, fg='blue')
     download.grid(row=8, column=2)
