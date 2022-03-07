@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 import tkinter
 from tkinter import *
 import tkinter.scrolledtext as st
@@ -92,6 +93,7 @@ def download_file():
                 data, addr = server_udp.recvfrom(1024)
                 if data.decode()[1:-1] == "SYN ACK":
                     server_udp.sendto("<ACK>".encode(), addr)
+                    print("\nHELLO IM HERE!\n")
                     receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
                     receiving_udp.setDaemon(True)
                     receiving_udp.start()
@@ -147,13 +149,14 @@ def receiving_udp_thread(addr):
             print("sent ack for:", size)
             break
         server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
+        time.sleep(0.1)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
         for data_info in buffer:
             f.write(data_info)
     download["state"] = "normal"
     download["text"] = "Download"
-    txt = f"({saveAs.get()} was successfully downloaded from the server, the last byte was {buffer[-1]})\n"
+    txt = f"({saveAs.get()} was successfully downloaded from the server, the last byte was {buffer[-1][-1]})\n"
     input_box.insert(END, txt)
     input_box.see("end")
 
