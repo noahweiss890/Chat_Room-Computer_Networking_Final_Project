@@ -60,6 +60,7 @@ def run_server_tcp():
 def run_server_udp():
     while True:
         msg, addr = serverSocketUDP.recvfrom(1024)
+        print("address of downloader:", addr)
         print("\n(SOMEONE TRYING TO DOWNLOAD)\n\n")
         msg_lst = msg.decode()[1:-1].split("><")
         if msg_lst[0] == "SYN":

@@ -153,7 +153,7 @@ def receiving_udp_thread(addr):
             f.write(data_info)
     download["state"] = "normal"
     download["text"] = "Download"
-    txt = f"({saveAs.get()} was successfully downloaded from the server, the last byte was {buffer[-1]})\n"
+    txt = f"({saveAs.get()} was successfully downloaded from the server, the last byte was {buffer[-1][-1]})\n"
     input_box.insert(END, txt)
     input_box.see("end")
 
