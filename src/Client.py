@@ -196,8 +196,8 @@ def listening_thread():
                 server_tcp.close()
                 server_tcp = None
                 connected = False
-                txt = f"({user.get()} logged out)\n"
-                input_box.insert(END, txt)
+                # txt = f"({user.get()} logged out)\n"
+                # input_box.insert(END, txt)
             elif message_from_server[0] == "server_down":
                 login["text"] = "Login"
                 user["state"] = "normal"
@@ -224,6 +224,11 @@ def listening_thread():
                 txt = ""
                 for msg in message_from_server[1:-1]:
                     txt += f"{msg}\n"
+                input_box.insert(END, txt)
+            elif message_from_server[0] == "user_updates":
+                txt = ""
+                for updt in message_from_server[1:-1]:
+                    txt += f"{updt}\n"
                 input_box.insert(END, txt)
             elif message_from_server[0] == "username_ERROR":
                 login["text"] = "Login"
@@ -270,16 +275,16 @@ if __name__ == '__main__':
 
     # frames
     topframe = LabelFrame(root)
-    topframe.grid(padx=15, pady=15)
+    topframe.grid(padx=15, pady=10)
 
     messageframe = LabelFrame(root)
-    messageframe.grid(padx=15, pady=15)
+    messageframe.grid(padx=15, pady=10)
 
     txtframe = LabelFrame(root)
-    txtframe.grid(padx=30, pady=30)
+    txtframe.grid(padx=30, pady=15)
 
     fileframe = LabelFrame(root)
-    fileframe.grid(padx=15, pady=15)
+    fileframe.grid(padx=15, pady=10)
 
     # labels and buttons and entries
     login = Button(topframe, text="Login", command=connect_to_server, fg='blue', background="yellow")
@@ -310,7 +315,7 @@ if __name__ == '__main__':
     sendm = Button(messageframe, text="Send", command=send_message, fg='blue')
     sendm.grid(row=4, column=2)
 
-    input_box = st.ScrolledText(txtframe, width=85, height=25, font=("Times New Roman", 15))
+    input_box = st.ScrolledText(txtframe, width=85, height=15, font=("Times New Roman", 15))
     input_box.grid(column=0, padx=10, pady=10)
     input_box.insert(tkinter.INSERT, "Welcome!\n")
     clear_button = Button(txtframe, text="Clear Inbox", command=clear_inbox, fg='blue')
