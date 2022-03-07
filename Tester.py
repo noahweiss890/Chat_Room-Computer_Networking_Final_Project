@@ -42,9 +42,9 @@ class MyTestCase(unittest.TestCase):
         server_tcp2.send(f"<connect><{user_name}>".encode())
         server_tcp2.recv(2048).decode()[1:-1].split("><")
 
-        server_tcp1.send("<get_users>".encode())
+        server_tcp2.send("<get_users>".encode())
 
-        message_from_server = server_tcp1.recv(2048).decode()[1:-1].split("><")
+        message_from_server = server_tcp2.recv(2048).decode()[1:-1].split("><")
         self.assertTrue("bob" in message_from_server[1:-1])
         self.assertTrue("alice" in message_from_server[1:-1])
 
