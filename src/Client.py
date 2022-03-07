@@ -16,18 +16,21 @@ PACKET_SIZE = 2048
 
 
 def connect_to_server():
+    """
+    This function is responsible for connecting the client to the server.
+    """
     global server_tcp, connected, user_name
     if login["text"] == "Login":
         if user.get():
             login["text"] = "Logout"
-            server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ip_address = host.get()
+            server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # creates a tcp connection
+            ip_address = host.get()  # what is written in the host box in the GUI
             port = 50000
-            server_tcp.connect((ip_address, port))
-            user_name = user.get()
+            server_tcp.connect((ip_address, port))  # server connects to ip_address and port
+            user_name = user.get()  # what is written in the username box in the GUI
             user["state"] = "disabled"
             host["state"] = "disabled"
-            server_tcp.send(f"<connect><{user_name}>".encode())
+            server_tcp.send(f"<connect><{user_name}>".encode())  # send connection request
             connected = True
     elif login["text"] == "Logout":
         login["text"] = "Login"
@@ -36,22 +39,25 @@ def connect_to_server():
         user["state"] = "normal"
         host["state"] = "normal"
         user_name = ""
-        server_tcp.send("<disconnect>".encode())
+        server_tcp.send("<disconnect>".encode())  # send disconnection request
 
 
 def send_message():
+    """
+    This function is responsible for sending messages from one client to another or to all.
+    """
     global server_tcp, connected
     if connected:
-        to = rec.get()
-        msg = message.get()
+        to = rec.get()  # what is written in the to box in the GUI
+        msg = message.get()  # what is written in the msg box in the GUI
         message.delete(0, END)
         if msg:
-            if to:
+            if to:  # to a specific client and not to all
                 server_tcp.send(f"<set_msg><{to}><{msg}>".encode())
-                txt = f"(to {to}) You: {msg}\n"
-            else:
+                txt = f"(to {to}) You: {msg}\n"  # to be printed on to the GUI screen
+            else:  # send to all
                 server_tcp.send(f"<set_msg_all><{msg}>".encode())
-                txt = f"(public) You: {msg}\n"
+                txt = f"(public) You: {msg}\n"  # to be printed on to the GUI screen
             input_box.insert(END, txt)
             input_box.see("end")
     else:
@@ -61,6 +67,9 @@ def send_message():
 
 
 def get_user_list():
+    """
+    This function is responsible for sending request for the user list.
+    """
     global server_tcp, connected
     if connected:
         server_tcp.send("<get_users>".encode())
@@ -71,6 +80,9 @@ def get_user_list():
 
 
 def get_file_list():
+    """
+    This function is responsible for sending request for the file list.
+    """
     global server_tcp, connected
     if connected:
         server_tcp.send("<get_list_file>".encode())
@@ -81,18 +93,22 @@ def get_file_list():
 
 
 def download_file():
+    """
+    Thread responsible for downloading file from the server over udp connection and creating and starting the receiving_udp thread.
+    The client requests to download over tcp and proceeds to udp.
+    """
     global server_tcp, connected, server_udp
     if connected:
         if download["text"] == "Download":
             download["text"] = "Proceed"
             server_tcp.send(f"<download><{fileName.get()}>".encode())
         elif download["text"] == "Proceed":
-            if saveAs.get():
+            if saveAs.get():  # what is written in saveAs box in GUI
                 download["state"] = "disabled"
-                server_udp.sendto(f"<SYN><{user_name}>".encode(), (host.get(), 40000))
+                server_udp.sendto(f"<SYN><{user_name}>".encode(), (host.get(), 40000))  # send SYN, part 1 of handshake.
                 data, addr = server_udp.recvfrom(1024)
-                if data.decode()[1:-1] == "SYN ACK":
-                    server_udp.sendto("<ACK>".encode(), addr)
+                if data.decode()[1:-1] == "SYN ACK":  # received SYN ACK, part 2 of handshake.
+                    server_udp.sendto("<ACK>".encode(), addr) # send ACK, part 3 of handshake.
                     print("\nHELLO IM HERE!\n")
                     receiving_udp = threading.Thread(target=receiving_udp_thread, args=(addr, ))
                     receiving_udp.setDaemon(True)
@@ -109,10 +125,13 @@ def download_file():
 
 
 def receiving_udp_thread(addr):
+    """
+    Thread responsible for receiving packets over udp from the server in order to download files.
+    """
     progress['value'] = 0
     root.update_idletasks()
     size_data = server_udp.recv(2)
-    size = size_data[0]*16**2 + size_data[1]
+    size = size_data[0]*16**2 + size_data[1]  # converts bytes from base 16 to base 10 number
     print("\nSIZE:")
     # print(size)
     print()
@@ -123,36 +142,37 @@ def receiving_udp_thread(addr):
     # once2 = True
     while True:
         print("gonna receive")
-        data = server_udp.recv(PACKET_SIZE+2)
+        data = server_udp.recv(PACKET_SIZE+2)  # added 2 bytes for seq number
         seq = data[0]*16**2 + data[1]
+        # activate this to check if duplicate ack protocol works
         # if seq == 16 and once1:
         #     once1 = False
-        #     # time.sleep(0.2)
         #     continue
+        # activate this to check if timeout protocol works
         # if seq == 50 and once2:
         #     once2 = False
         #     time.sleep(1.1)
         #     continue
         print("got data seq:", seq)
         if not buffer[seq]:
-            buffer[seq] = data[2:]
+            buffer[seq] = data[2:]  # start at 2 to pass seq num
             progress['value'] += 100/int(size)
             print("progress:", progress['value'])
             root.update_idletasks()
         ack_seq = -1
-        for i, data in enumerate(buffer):
-            if data is None:
+        for i, data in enumerate(buffer):  # discovers proper ack number
+            if data is None:  # lowest spot with no data
                 ack_seq = i
                 break
-        if ack_seq == -1:
+        if ack_seq == -1:  # received all packets
             server_udp.sendto(f"<ack><{size}>".encode(), addr)
             print("sent ack for:", size)
             break
-        server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)
+        server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)  # send ack
         time.sleep(0.1)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
-        for data_info in buffer:
+        for data_info in buffer:  # take info from buffer and write in saveAs file
             f.write(data_info)
     download["state"] = "normal"
     download["text"] = "Download"
@@ -162,6 +182,9 @@ def receiving_udp_thread(addr):
 
 
 def listening_thread():
+    """
+    Thread responsible for listening for messages from the server and activating the corresponding parts of the GUI in return.
+    """
     global server_tcp, connected
     while True:
         if connected:
@@ -222,10 +245,16 @@ def listening_thread():
 
 
 def clear_inbox():
+    """
+    This function clears the client's inbox screen
+    """
     input_box.delete(1.0, END)
 
 
 def quit_me():
+    """
+    This function is called when the client window is exited.
+    """
     global kill
     if connected:
         server_tcp.send("<disconnect>".encode())
@@ -300,9 +329,9 @@ if __name__ == '__main__':
     progress = Progressbar(fileframe, orient=HORIZONTAL, length=200, mode='determinate')
     progress.grid(row=9, column=0)
 
-    server_listening_thread = threading.Thread(target=listening_thread)
-    server_listening_thread.setDaemon(True)
-    server_listening_thread.start()
+    server_listening_thread = threading.Thread(target=listening_thread)  # create server_listening_thread
+    server_listening_thread.setDaemon(True)  # set thread as Daemon
+    server_listening_thread.start()  # start thread
 
     root.mainloop()
 
