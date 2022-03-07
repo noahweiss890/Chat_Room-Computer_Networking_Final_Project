@@ -19,6 +19,7 @@ serverSocketUDP.bind(
 # these locks are to avoid thread racing
 msg_lock = threading.Lock()
 user_lock = threading.Lock()
+user_updates_lock = threading.Lock()
 
 kill = False
 list_of_users = {}  # key is client's username, value is connection
@@ -49,10 +50,13 @@ def run_server_tcp():
         if msg_list[0] == "connect":  # client wishes to connect to server
             if msg_list[1] not in list_of_users:
                 print(msg_list[1] + " connected")
+                with user_updates_lock:
+                    for username in flags_for_sender:
+                        flags_for_sender.get(username)["user_updates"].append(f"({msg_list[1]} logged in)")
                 with user_lock:  # to avoid thread racing
                     list_of_users[msg_list[1]] = conn
                 flags_for_sender[msg_list[1]] = {"get_users": False, "get_list_file": False, "msg_lst": [],
-                                                 "disconnect": False, "msg_ERROR": False, "FileNotFound_ERROR": False,
+                                                 "disconnect": False, "user_updates": [], "msg_ERROR": False, "FileNotFound_ERROR": False,
                                                  "server_down": False, "proceed": False}
                 client_listening_thread = threading.Thread(target=listening_thread,
                                                            args=(conn, msg_list[1]))  # creates listening_thread
@@ -282,6 +286,14 @@ def sending_thread(conn: socket.socket, username: str):
                 msgs += "<end>"
                 conn.send(msgs.encode())  # send messages
                 flags_for_sender.get(username)["msg_lst"] = []
+        if flags_for_sender.get(username).get("user_updates"):
+            with user_updates_lock:
+                updts = "<user_updates>"
+                for updt in flags_for_sender.get(username).get("user_updates"):  # go through updates
+                    updts += f"<{updt}>"
+                updts += "<end>"
+                conn.send(updts.encode())  # send updates
+                flags_for_sender.get(username)["user_updates"] = []
         if flags_for_sender.get(username).get("disconnect"):
             del list_of_users[username]
             del flags_for_sender[username]
@@ -316,6 +328,9 @@ def listening_thread(conn: socket.socket, username: str):
                 msg_list = message.decode()[1:-1].split("><")
                 if msg_list[0] == "disconnect":
                     flags_for_sender.get(username)["disconnect"] = True
+                    with user_updates_lock:
+                        for user in flags_for_sender:
+                            flags_for_sender.get(user)["user_updates"].append(f"({username} logged out)")
                     break
                 elif msg_list[0] == "get_users":
                     flags_for_sender.get(username)["get_users"] = True
