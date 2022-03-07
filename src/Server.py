@@ -67,7 +67,7 @@ def run_server_udp():
             port = next_available_udp_port()
             if port != -1:
                 new_serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                new_SERVER_ADDRESS_UDP = ('localhost', port)
+                new_SERVER_ADDRESS_UDP = ("172.20.10.4", port)
                 new_serverSocketUDP.bind(new_SERVER_ADDRESS_UDP)
                 send_over_udp_thread = threading.Thread(target=file_sender_thread, args=(new_serverSocketUDP, addr, msg_lst[1]))
                 send_over_udp_thread.setDaemon(True)
@@ -79,6 +79,7 @@ def run_server_udp():
 def file_sender_thread(sockUDP: socket.socket, addr, username: str):
     sockUDP.sendto("<SYN ACK>".encode(), addr)
     msg = sockUDP.recv(PACKET_SIZE).decode()[1:-1]
+    print("message1:", msg)
     if msg == "ACK":
         sent_packets[username] = {}
         dupack_seq[username] = -1
@@ -155,12 +156,12 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                         with sent_packets_locks[username]:
                             del sent_packets.get(username)[i]
         else:
-            print("RECEIVED ERROR ON UDP!")
+            print("RECEIVED ERROR ON UDP!", ack[0])
 
 
 def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
     next_packet = 0
-    timeout = 0.5
+    timeout = 1.0
     while not udp_thread_kill[username]:
         copy_sent_packets = sent_packets.get(username).copy()
         curr_time = time.time()
