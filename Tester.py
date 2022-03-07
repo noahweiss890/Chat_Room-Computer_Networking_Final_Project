@@ -32,7 +32,7 @@ class MyTestCase(unittest.TestCase):
         server_tcp1.connect((ip_address, port))
         user_name = "bob"
         server_tcp1.send(f"<connect><{user_name}>".encode())
-        server_tcp1.recv(2048).decode()[1:-1].split("><")
+        server_tcp1.recv(2048)
 
         server_tcp2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         ip_address = '0.0.0.0'
@@ -40,7 +40,7 @@ class MyTestCase(unittest.TestCase):
         server_tcp2.connect((ip_address, port))
         user_name = "alice"
         server_tcp2.send(f"<connect><{user_name}>".encode())
-        server_tcp2.recv(2048).decode()[1:-1].split("><")
+        server_tcp2.recv(2048)
 
         server_tcp2.send("<get_users>".encode())
 
@@ -61,7 +61,7 @@ class MyTestCase(unittest.TestCase):
         server_tcp1.connect((ip_address, port))
         user_name = "tommy"
         server_tcp1.send(f"<connect><{user_name}>".encode())
-        server_tcp1.recv(2048).decode()[1:-1].split("><")
+        server_tcp1.recv(2048)
 
         server_tcp2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         ip_address = '0.0.0.0'
@@ -69,7 +69,7 @@ class MyTestCase(unittest.TestCase):
         server_tcp2.connect((ip_address, port))
         user_name = "gina"
         server_tcp2.send(f"<connect><{user_name}>".encode())
-        server_tcp2.recv(2048).decode()[1:-1].split("><")
+        server_tcp2.recv(2048)
 
         msg = "were half way there"
         server_tcp1.send(f"<set_msg><gina><{msg}>".encode())
