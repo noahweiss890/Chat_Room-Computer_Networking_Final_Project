@@ -230,9 +230,9 @@ def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
                     sent_packets.get(username)[next_packet] = time.time()  # set time
                     next_packet += 1
                     # time.sleep(0.05)
-        print("                     window size:", window_size[username])
-        print("                     sent packets:", len(sent_packets[username]))
-        print("                     threshold:", ssthresh[username])
+        # print("                     window size:", window_size[username])
+        # print("                     sent packets:", len(sent_packets[username]))
+        # print("                     threshold:", ssthresh[username])
 
 
 def next_available_udp_port() -> int:
