@@ -169,7 +169,6 @@ def receiving_udp_thread(addr):
             print("sent ack for:", size)
             break
         server_udp.sendto(f"<ack><{ack_seq}>".encode(), addr)  # send ack
-        time.sleep(0.1)
         print("sent ack for:", ack_seq)
     with open(f"../Downloaded_Files_From_Server/{saveAs.get()}", "wb") as f:
         for data_info in buffer:  # take info from buffer and write in saveAs file
