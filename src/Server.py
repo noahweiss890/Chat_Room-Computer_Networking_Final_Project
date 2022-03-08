@@ -6,15 +6,12 @@ from tkinter import *  # for gui
 
 serverSocketTCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # this creates a tcp socket
 SERVER_ADDRESS_TCP = ('0.0.0.0', 50000)
-serverSocketTCP.bind(
-    SERVER_ADDRESS_TCP)  # this sets the ip address and port number to the socket using the bind function
+serverSocketTCP.bind(SERVER_ADDRESS_TCP)  # this sets the ip address and port number to the socket using the bind function
 serverSocketTCP.listen(15)  # this sets the max amount of clients that can use the server at once to 15
 
-serverSocketUDP = socket.socket(socket.AF_INET,
-                                socket.SOCK_DGRAM)  # this creates a udp socket used to listen for initial handshake
+serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # this creates a udp socket used to listen for initial handshake
 SERVER_ADDRESS_UDP = ('0.0.0.0', 40000)
-serverSocketUDP.bind(
-    SERVER_ADDRESS_UDP)  # this sets the ip address and port number to the socket using the bind function
+serverSocketUDP.bind(SERVER_ADDRESS_UDP)  # this sets the ip address and port number to the socket using the bind function
 
 # these locks are to avoid thread racing
 msg_lock = threading.Lock()
