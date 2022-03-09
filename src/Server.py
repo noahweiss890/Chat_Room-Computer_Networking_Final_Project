@@ -6,15 +6,12 @@ from tkinter import *  # for gui
 
 serverSocketTCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # this creates a tcp socket
 SERVER_ADDRESS_TCP = ('0.0.0.0', 50000)
-serverSocketTCP.bind(
-    SERVER_ADDRESS_TCP)  # this sets the ip address and port number to the socket using the bind function
+serverSocketTCP.bind(SERVER_ADDRESS_TCP)  # this sets the ip address and port number to the socket using the bind function
 serverSocketTCP.listen(15)  # this sets the max amount of clients that can use the server at once to 15
 
-serverSocketUDP = socket.socket(socket.AF_INET,
-                                socket.SOCK_DGRAM)  # this creates a udp socket used to listen for initial handshake
+serverSocketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # this creates a udp socket used to listen for initial handshake
 SERVER_ADDRESS_UDP = ('0.0.0.0', 40000)
-serverSocketUDP.bind(
-    SERVER_ADDRESS_UDP)  # this sets the ip address and port number to the socket using the bind function
+serverSocketUDP.bind(SERVER_ADDRESS_UDP)  # this sets the ip address and port number to the socket using the bind function
 
 # these locks are to avoid thread racing
 msg_lock = threading.Lock()
@@ -23,7 +20,6 @@ user_updates_lock = threading.Lock()
 
 kill = False
 list_of_users = {}  # key is client's username, value is connection
-# list_of_udp_sockets = {}
 requested_files = {}  # key is client's username, value is the file the client requested for download
 flags_for_sender = {}  # key is client's username, value is another dictionary where the keys are commands where the server must send something, and the values are true or false
 list_of_server_files = os.listdir('../Server_Files')  # files that the server has access to
@@ -97,10 +93,6 @@ def run_server_udp():
 
 def file_sender_thread(sockUDP: socket.socket, addr, username: str):
     """
-
-    :param sockUDP:
-    :param addr:
-    :param username:
     Thread that is responsible for sending the file to the client over udp
     """
     sockUDP.sendto("<SYN ACK>".encode(), addr)  # tells client that connection was successful
@@ -111,7 +103,7 @@ def file_sender_thread(sockUDP: socket.socket, addr, username: str):
         window_size[username] = 1
         print("CC STAGE STARTING AT Slow Start")
         CC_stage[username] = "Slow Start"
-        ssthresh[username] = 16
+        ssthresh[username] = 32
         window_size_locks[username] = threading.Lock()  # lock enabled
         sent_packets_locks[username] = threading.Lock()  # lock enabled
         udp_thread_kill[username] = False
@@ -138,17 +130,12 @@ def file_sender_thread(sockUDP: socket.socket, addr, username: str):
 
 def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
     """
-
-    :param sockUDP:
-    :param username:
-    :param buffer_size:
     Thread responsible for listening for acks from clients
     """
     last_ack_seq = -1
     dupAckcount = 0
     while not udp_thread_kill[username]:  # still more packets to be sent
-        ack = sockUDP.recv(PACKET_SIZE).decode()[1:-1].split(
-            "><")  # receive ack messaage and split up into parts: "ack" and seq num
+        ack = sockUDP.recv(PACKET_SIZE).decode()[1:-1].split("><")  # receive ack messaage and split up into parts: "ack" and seq num
         if ack[0] == "ack":
             # print("got ack for:", int(ack[1]))
             if int(ack[1]) >= buffer_size:  # ack for last packet was received
@@ -157,17 +144,14 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 if CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] += 1  # window size increases by 1
-                        # print("window size:", window_size[username])
                 else:
                     dupAckcount += 1
                     if dupAckcount == 3:
                         print("*** 3 duplicate acks occurred")
                         dupack_seq[username] = int(ack[1])
-                        ssthresh[username] = window_size[username] / 2  # threshold is reduced to window_size / 2
+                        ssthresh[username] = max(window_size[username] / 2, 1)  # threshold is reduced to window_size / 2
                         with window_size_locks[username]:
-                            window_size[username] = window_size[
-                                                        username] / 2 + 3  # window_size is reduced to threshold + 3
-                            # print("window size:", window_size[username])
+                            window_size[username] = max(window_size[username] / 2, 1) + 3  # window_size is reduced to threshold + 3
                         CC_stage[username] = "Fast Recovery"  # congestion control stage is now Fast Recovery which will later trigger the retransmitting of the packet
                         print("CC STAGE CHANGED TO Fast Recovery")
             else:
@@ -176,18 +160,15 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 if CC_stage[username] == "Slow Start":
                     with window_size_locks[username]:
                         window_size[username] += 1  # window size increases by 1
-                        # print("window size:", window_size[username])
                     if window_size[username] >= ssthresh[username]:  # once the window size has passed the threshold, the CC stage turned to congestion avoidance
                         CC_stage[username] = "Congestion Avoidance"
                         print("CC STAGE CHANGED TO Congestion Avoidance")
                 elif CC_stage[username] == "Congestion Avoidance":
                     with window_size_locks[username]:
                         window_size[username] += 1 / window_size[username]  # window size increases by 1/window_size
-                        # print("window size:", window_size[username])
                 elif CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] = ssthresh[username]  # window size equals the threshold
-                        # print("window size:", window_size[username])
                     CC_stage[username] = "Congestion Avoidance"
                     print("CC STAGE CHANGED TO Congestion Avoidance")
                 for i in sent_packets[username].copy().keys():
@@ -200,33 +181,29 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
 
 def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
     """
-
-    :param sockUDP:
-    :param addr:
-    :param username:
-    :param buffer:
     Thread responsible for sending packets to the client. regularly and retransmission due to timeout or 3 dup acks
     """
     next_packet = 0
-    timeout = 1.0  # if after 1 sec, ack for packet is not received, packet is retransmitted
+    timeout = 0.4  # if after 1 sec, ack for packet is not received, packet is retransmitted
     while not udp_thread_kill[username]:
         copy_sent_packets = sent_packets.get(username).copy()  # copy in order to avoid thread hogging
         curr_time = time.time()
         for seq, t in copy_sent_packets.items():
             if curr_time > t + timeout:  # timeout occurred
                 print("*** timeout occurred:", seq)
-                CC_stage[username] = "Slow Start"
-                print("CC STAGE CHANGED TO Slow Start")
-                with window_size_locks[username]:
-                    ssthresh[username] = max(window_size[username] / 2, 1)  # threshold is reduced
-                    window_size[username] = 1  # window size reduced to 1
-                    # print("window size:", window_size[username])
-                # print("sent timeout data seq:", seq)
-                sockUDP.sendto(seq.to_bytes(2, byteorder='big') + buffer[seq], addr) #retransmit packet
+                if CC_stage[username] == "Slow Start":
+                    with window_size_locks[username]:
+                        window_size[username] = 1  # window size reduced to 1
+                else:
+                    CC_stage[username] = "Slow Start"
+                    print("CC STAGE CHANGED TO Slow Start")
+                    with window_size_locks[username]:
+                        ssthresh[username] = max(window_size[username] / 2, 1)  # threshold is reduced
+                        window_size[username] = 1  # window size reduced to 1
+                sockUDP.sendto(seq.to_bytes(2, byteorder='big') + buffer[seq], addr)  # retransmit packet
                 with sent_packets_locks[username]:
                     sent_packets.get(username)[seq] = time.time()  # reset time
-        if dupack_seq[username] != -1: # 3 dup acks for the seq num
-            # print("sent duplicate data seq:", dupack_seq[username])
+        if dupack_seq[username] != -1:  # 3 dup acks for the seq num
             sockUDP.sendto(dupack_seq[username].to_bytes(2, byteorder='big') + buffer[dupack_seq[username]], addr)  #retransmit packet
             with sent_packets_locks[username]:
                 sent_packets.get(username)[dupack_seq[username]] = time.time()  # reset time
@@ -234,7 +211,6 @@ def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
         with sent_packets_locks[username]:
             with window_size_locks[username]:
                 while next_packet < len(buffer) and len(sent_packets[username]) < int(window_size[username]):  # there is packet to be sent and not yet at window_size
-                    # print("sent data seq:", next_packet)
                     sockUDP.sendto(next_packet.to_bytes(2, byteorder='big') + buffer[next_packet], addr)  # transmit packet
                     sent_packets.get(username)[next_packet] = time.time()  # set time
                     next_packet += 1
@@ -254,9 +230,6 @@ def next_available_udp_port() -> int:
 
 def sending_thread(conn: socket.socket, username: str):
     """
-
-    :param conn:
-    :param username:
     Thread responsible for sending messages to the client through the tcp connection.
     When a request comes in from a client, the listening_thread raises a flag in the flags_for_sender dict at the appropriate spot.
     The sending thread constantly checks the dict and sends what was requested to the client.
@@ -314,9 +287,6 @@ def sending_thread(conn: socket.socket, username: str):
 
 def listening_thread(conn: socket.socket, username: str):
     """
-
-    :param conn:
-    :param username:
     Thread responsible for listening to incoming requests from clients.
     Depending on the request, a flag is raised in the flags_for_sender dict at the appropriate spot.
     This then causes the sending_thread to send what is requested to client.
