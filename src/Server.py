@@ -20,7 +20,6 @@ user_updates_lock = threading.Lock()
 
 kill = False
 list_of_users = {}  # key is client's username, value is connection
-# list_of_udp_sockets = {}
 requested_files = {}  # key is client's username, value is the file the client requested for download
 flags_for_sender = {}  # key is client's username, value is another dictionary where the keys are commands where the server must send something, and the values are true or false
 list_of_server_files = os.listdir('../Server_Files')  # files that the server has access to
@@ -145,7 +144,6 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 if CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] += 1  # window size increases by 1
-                        # print("window size:", window_size[username])
                 else:
                     dupAckcount += 1
                     if dupAckcount == 3:
@@ -154,7 +152,6 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                         ssthresh[username] = max(window_size[username] / 2, 1)  # threshold is reduced to window_size / 2
                         with window_size_locks[username]:
                             window_size[username] = max(window_size[username] / 2, 1) + 3  # window_size is reduced to threshold + 3
-                            # print("window size:", window_size[username])
                         CC_stage[username] = "Fast Recovery"  # congestion control stage is now Fast Recovery which will later trigger the retransmitting of the packet
                         print("CC STAGE CHANGED TO Fast Recovery")
             else:
@@ -163,18 +160,15 @@ def ack_receiver(sockUDP: socket.socket, username: str, buffer_size: int):
                 if CC_stage[username] == "Slow Start":
                     with window_size_locks[username]:
                         window_size[username] += 1  # window size increases by 1
-                        # print("window size:", window_size[username])
                     if window_size[username] >= ssthresh[username]:  # once the window size has passed the threshold, the CC stage turned to congestion avoidance
                         CC_stage[username] = "Congestion Avoidance"
                         print("CC STAGE CHANGED TO Congestion Avoidance")
                 elif CC_stage[username] == "Congestion Avoidance":
                     with window_size_locks[username]:
                         window_size[username] += 1 / window_size[username]  # window size increases by 1/window_size
-                        # print("window size:", window_size[username])
                 elif CC_stage[username] == "Fast Recovery":
                     with window_size_locks[username]:
                         window_size[username] = ssthresh[username]  # window size equals the threshold
-                        # print("window size:", window_size[username])
                     CC_stage[username] = "Congestion Avoidance"
                     print("CC STAGE CHANGED TO Congestion Avoidance")
                 for i in sent_packets[username].copy().keys():
@@ -206,30 +200,20 @@ def packet_sender(sockUDP: socket.socket, addr, username: str, buffer: list):
                     with window_size_locks[username]:
                         ssthresh[username] = max(window_size[username] / 2, 1)  # threshold is reduced
                         window_size[username] = 1  # window size reduced to 1
-                    # print("window size:", window_size[username])
-                # print("sent timeout data seq:", seq)
                 sockUDP.sendto(seq.to_bytes(2, byteorder='big') + buffer[seq], addr)  # retransmit packet
                 with sent_packets_locks[username]:
                     sent_packets.get(username)[seq] = time.time()  # reset time
-                # time.sleep(0.05)
         if dupack_seq[username] != -1:  # 3 dup acks for the seq num
-            # print("sent duplicate data seq:", dupack_seq[username])
             sockUDP.sendto(dupack_seq[username].to_bytes(2, byteorder='big') + buffer[dupack_seq[username]], addr)  #retransmit packet
             with sent_packets_locks[username]:
                 sent_packets.get(username)[dupack_seq[username]] = time.time()  # reset time
             dupack_seq[username] = -1
-            # time.sleep(0.05)
         with sent_packets_locks[username]:
             with window_size_locks[username]:
                 while next_packet < len(buffer) and len(sent_packets[username]) < int(window_size[username]):  # there is packet to be sent and not yet at window_size
-                    # print("sent data seq:", next_packet)
                     sockUDP.sendto(next_packet.to_bytes(2, byteorder='big') + buffer[next_packet], addr)  # transmit packet
                     sent_packets.get(username)[next_packet] = time.time()  # set time
                     next_packet += 1
-                    # time.sleep(0.05)
-        # print("                     window size:", window_size[username])
-        # print("                     sent packets:", len(sent_packets[username]))
-        # print("                     threshold:", ssthresh[username])
 
 
 def next_available_udp_port() -> int:

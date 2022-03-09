@@ -1,6 +1,5 @@
 import socket
 import threading
-import time
 import tkinter
 from tkinter import *
 import tkinter.scrolledtext as st
@@ -133,13 +132,12 @@ def receiving_udp_thread(addr):
     size_data = server_udp.recv(2)
     size = size_data[0]*16**2 + size_data[1]  # converts bytes from base 16 to base 10 number
     print("\nSIZE:")
-    # print(size)
     print()
     print("size", size)
     buffer = [None]*size
     print("progress:", progress['value'])
-    # once1 = True
-    # once2 = True
+    # once1 = True      for checking if 3 duplicate acks works
+    # once2 = True      for checking is timeout works
     while True:
         print("gonna receive")
         data = server_udp.recv(PACKET_SIZE+2)  # added 2 bytes for seq number
@@ -195,8 +193,6 @@ def listening_thread():
                 server_tcp.close()
                 server_tcp = None
                 connected = False
-                # txt = f"({user.get()} logged out)\n"
-                # input_box.insert(END, txt)
             elif message_from_server[0] == "server_down":
                 login["text"] = "Login"
                 user["state"] = "normal"
